@@ -169,7 +169,7 @@
   .modal footer .right { display:flex; gap:8px; }
   .live-margin { font-size:12px; color:var(--text-secondary); }
   .live-margin b { font-variant-numeric:tabular-nums; }
-  .anag-row { display:grid; grid-template-columns:1.4fr 1fr .7fr auto; gap:8px; align-items:end; margin-bottom:8px; }
+  .anag-row { display:grid; grid-template-columns:1.2fr .9fr 1.3fr .7fr auto; gap:8px; align-items:end; margin-bottom:8px; }
 
   .tip { position:fixed; pointer-events:none; background:var(--text-primary); color:var(--page); font-size:11.5px; padding:6px 9px; border-radius:7px; opacity:0; transition:opacity .08s; z-index:80; white-space:nowrap; box-shadow:0 4px 12px rgba(0,0,0,.25); font-variant-numeric:tabular-nums; }
   .tip .tt { font-weight:600; }
@@ -363,7 +363,7 @@
     <div class="body">
       <div class="hint" style="color:var(--muted);margin-bottom:10px">Nome, ruolo e costo orario interno di ciascuna risorsa. Il costo alimenta il calcolo dei margini.</div>
       <div class="anag-row" style="font-weight:600;color:var(--muted);font-size:10.5px;text-transform:uppercase">
-        <div>Nome</div><div>Ruolo</div><div>Costo €/h</div><div></div>
+        <div>Nome</div><div>Ruolo</div><div>Email (per il login)</div><div>Costo €/h</div><div></div>
       </div>
       <div id="anagRows"></div>
       <button class="btn sm" id="addAnagBtn" type="button" style="margin-top:6px">＋ Aggiungi risorsa</button>
@@ -400,6 +400,7 @@
 </div>
 
 <div class="tip" id="tip"></div>
+<div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#d03b3b;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.3);opacity:0;transition:opacity .2s;pointer-events:none;z-index:120;max-width:80vw;text-align:center"></div>
 
 <script>
 "use strict";
@@ -439,6 +440,8 @@ let timesheet = [];
 let currentUser = null;
 let subscribed = false;
 let realtimeTimer = null;
+let lastLocalEdit = 0;
+let toastTimer = null;
 
 let sortKey = "scadenza", sortDir = 1, editId = null;
 let tsResId = null;
@@ -855,9 +858,28 @@ function tsKey(){ return tsResId+"|"+iso(tsWeek); }
 function tsGet(resId, commId, dayISO){ const e=timesheet.find(t=>t.risorsaId===resId&&t.commessaId===commId&&t.data===dayISO); return e?e.ore:0; }
 function tsSet(resId, commId, dayISO, val){
   val=Math.max(0,Math.round((+val||0)*10)/10);
+  lastLocalEdit = Date.now();
   const i=timesheet.findIndex(t=>t.risorsaId===resId&&t.commessaId===commId&&t.data===dayISO);
   if(val>0){ if(i>=0) timesheet[i].ore=val; else timesheet.push({id:uid("t"),risorsaId:resId,commessaId:commId,data:dayISO,ore:val}); dbTsUpsert(resId,commId,dayISO,val); }
   else if(i>=0){ timesheet.splice(i,1); dbTsDelete(resId,commId,dayISO); }
+}
+/* Aggiorna solo i totali (riga, giorno, generale) senza ricostruire le celle:
+   così il valore digitato e il focus non si perdono durante l'inserimento. */
+function updateTsTotals(){
+  const days=[...Array(7)].map((_,i)=>iso(addDays(tsWeek,i)));
+  let ncomm=0;
+  document.querySelectorAll('#tsGrid tr[data-comm-row]').forEach(tr=>{
+    ncomm++; const cid=tr.getAttribute('data-comm-row');
+    let tot=0; days.forEach(d=>tot+=tsGet(tsResId,cid,d));
+    const cell=tr.querySelector('.rowtot'); if(cell) cell.textContent=h1(tot);
+  });
+  let grand=0;
+  days.forEach(d=>{ const t=timesheet.filter(x=>x.risorsaId===tsResId&&x.data===d).reduce((s,x)=>s+x.ore,0); grand+=t;
+    const cell=document.querySelector('#tsGrid [data-daytot="'+d+'"]');
+    if(cell){ cell.textContent=t?h1(t):"—"; cell.classList.toggle('over',t>8); cell.classList.toggle('full',t>=7.5&&t<=8); } });
+  const gc=document.querySelector('#tsGrid [data-grandtot]'); if(gc) gc.textContent=h1(grand);
+  const res=resById(tsResId), sm=document.getElementById("tsSummary");
+  if(sm) sm.innerHTML=`Ore registrate da <b>${escapeHtml(res.nome)}</b> nella settimana: <b>${h1(grand)}h</b> su ${ncomm} commesse · costo interno settimana ${euro(grand*(res.costo||0))}`;
 }
 function tsCommesseForRes(resId, weekDays){
   const ids=new Set();
@@ -885,14 +907,14 @@ function renderTimesheet(){
     let rowTot=0;
     const cells=days.map((d,i)=>{ const v=tsGet(tsResId,c.id,d); rowTot+=v; const td=(d===todayISO), wd=(i>=5);
       return `<td class="${td?'today':''} ${wd?'wknd':''}" style="text-align:center"><input class="ts-in" type="number" min="0" step="0.5" value="${v||""}" data-comm="${c.id}" data-day="${d}"></td>`; }).join("");
-    body+=`<tr><td><div class="cmm-name">${escapeHtml(c.nome)}</div><div class="cmm-client">${escapeHtml(c.cliente)}</div></td>${cells}<td class="rowtot">${h1(rowTot)}</td><td><button class="delrow" data-clear="${c.id}" title="Azzera riga">✕</button></td></tr>`;
+    body+=`<tr data-comm-row="${c.id}"><td><div class="cmm-name">${escapeHtml(c.nome)}</div><div class="cmm-client">${escapeHtml(c.cliente)}</div></td>${cells}<td class="rowtot">${h1(rowTot)}</td><td><button class="delrow" data-clear="${c.id}" title="Azzera riga">✕</button></td></tr>`;
   });
 
   // day totals across ALL commesse for the resource
   let grand=0;
   const dayTot=days.map(d=>{ const t=timesheet.filter(x=>x.risorsaId===tsResId&&x.data===d).reduce((s,x)=>s+x.ore,0); grand+=t; return t; });
   let foot=`<tr><td style="text-align:right;color:var(--muted)">Totale giornaliero</td>`+dayTot.map((t,i)=>{ const cls=t>8?"over":(t>=7.5?"full":""); const td=(days[i]===todayISO);
-    return `<td class="daytot ${cls} ${td?'today':''}">${t?h1(t):"—"}</td>`; }).join("")+`<td class="rowtot">${h1(grand)}</td><td></td></tr>`;
+    return `<td class="daytot ${cls} ${td?'today':''}" data-daytot="${days[i]}">${t?h1(t):"—"}</td>`; }).join("")+`<td class="rowtot" data-grandtot>${h1(grand)}</td><td></td></tr>`;
 
   document.getElementById("tsGrid").innerHTML=`<table class="tsgrid"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table>`;
 
@@ -907,7 +929,7 @@ function renderTimesheet(){
 
   // wire inputs
   document.querySelectorAll("#tsGrid .ts-in").forEach(inp=>{
-    inp.addEventListener("change",()=>{ tsSet(tsResId,inp.dataset.comm,inp.dataset.day,inp.value); renderTimesheet(); renderAll(); });
+    inp.addEventListener("change",()=>{ tsSet(tsResId,inp.dataset.comm,inp.dataset.day,inp.value); updateTsTotals(); renderAll(); });
   });
   document.querySelectorAll("#tsGrid .delrow").forEach(b=>{
     b.addEventListener("click",()=>{ const cid=b.dataset.clear; days.forEach(d=>tsSet(tsResId,cid,d,0)); renderTimesheet(); renderAll(); });
@@ -1224,6 +1246,7 @@ function addAnagRow(r){ r=r||{};
   const div=document.createElement("div"); div.className="anag-row"; div.dataset.id=r.id||"";
   div.innerHTML=`<div class="field"><input type="text" class="an-nome" placeholder="Nome" value="${escapeHtml(r.nome||"")}"></div>
     <div class="field"><input type="text" class="an-ruolo" placeholder="Ruolo" value="${escapeHtml(r.ruolo||"")}"></div>
+    <div class="field"><input type="email" class="an-email" placeholder="email@studiotomalino.it" value="${escapeHtml(r.email||"")}"></div>
     <div class="field"><input type="number" class="an-costo" min="0" step="1" placeholder="€/h" value="${r.costo??""}"></div>
     <button class="del-x" type="button" title="Rimuovi">✕</button>`;
   div.querySelector(".del-x").addEventListener("click",()=>div.remove());
@@ -1231,15 +1254,15 @@ function addAnagRow(r){ r=r||{};
 }
 async function saveRes(){
   const rows=[...document.querySelectorAll("#anagRows .anag-row")];
-  const next=rows.map(r=>({ id:r.dataset.id||"", nome:r.querySelector(".an-nome").value.trim(), ruolo:r.querySelector(".an-ruolo").value.trim(), costo:+r.querySelector(".an-costo").value||0 })).filter(r=>r.nome);
+  const next=rows.map(r=>({ id:r.dataset.id||"", nome:r.querySelector(".an-nome").value.trim(), ruolo:r.querySelector(".an-ruolo").value.trim(), email:r.querySelector(".an-email").value.trim(), costo:+r.querySelector(".an-costo").value||0 })).filter(r=>r.nome);
   if(!next.length){ alert("Serve almeno una risorsa."); return; }
   if(!sbc){ anagrafica=next.map(r=>({...r,id:r.id||uid("r")})); if(!anagrafica.find(r=>r.id===tsResId)) tsResId=anagrafica[0].id; closeRes(); refreshFilterOptions(); renderAll(); renderTimesheet(); return; }
   const keepIds=new Set(next.filter(r=>r.id).map(r=>r.id));
   const toDel=anagrafica.filter(r=>!keepIds.has(r.id)).map(r=>r.id);
   if(toDel.length) await sbc.from('risorse').delete().in('id',toDel);
   for(const r of next){
-    if(r.id) await sbc.from('risorse').update({nome:r.nome,ruolo:r.ruolo,costo:r.costo}).eq('id',r.id);
-    else await sbc.from('risorse').insert({nome:r.nome,ruolo:r.ruolo,costo:r.costo});
+    if(r.id) await sbc.from('risorse').update({nome:r.nome,ruolo:r.ruolo,email:r.email||null,costo:r.costo}).eq('id',r.id);
+    else await sbc.from('risorse').insert({nome:r.nome,ruolo:r.ruolo,email:r.email||null,costo:r.costo});
   }
   closeRes(); await dbReloadRender();
   if(!anagrafica.find(r=>r.id===tsResId)) tsResId=anagrafica[0]?anagrafica[0].id:null;
@@ -1280,9 +1303,10 @@ async function loadFromDB(){
 async function dbReloadRender(){ await loadFromDB(); refreshFilterOptions(); renderAll();
   const tv=document.getElementById("view-timesheet"); if(tv&&tv.classList.contains("active")) renderTimesheet();
   const bv=document.getElementById("view-billing"); if(bv&&bv.classList.contains("active")) renderBilling(); }
-async function dbTsUpsert(resId,commId,day,ore){ if(!sbc)return; const {error}=await sbc.from('timesheet').upsert({risorsa_id:resId,commessa_id:commId,data:day,ore},{onConflict:'risorsa_id,commessa_id,data'}); if(error) console.warn("timesheet:",error.message); }
-async function dbTsDelete(resId,commId,day){ if(!sbc)return; await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day}); }
-async function dbScUpdate(id,patch){ if(!sbc)return; const {error}=await sbc.from('scadenze').update(patch).eq('id',id); if(error) console.warn("scadenza:",error.message); }
+async function dbTsUpsert(resId,commId,day,ore){ if(!sbc)return; const {error}=await sbc.from('timesheet').upsert({risorsa_id:resId,commessa_id:commId,data:day,ore},{onConflict:'risorsa_id,commessa_id,data'}); if(error) notify("Ore non salvate: "+error.message, true); }
+async function dbTsDelete(resId,commId,day){ if(!sbc)return; const {error}=await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day}); if(error) notify("Errore: "+error.message, true); }
+async function dbScUpdate(id,patch){ if(!sbc)return; const {error}=await sbc.from('scadenze').update(patch).eq('id',id); if(error) notify("Modifica non salvata: "+error.message, true); }
+function notify(msg,isErr){ const t=document.getElementById("toast"); if(!t)return; t.textContent=msg; t.style.background=isErr?levelColor("critical"):levelColor("good"); t.style.opacity="1"; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity="0"; }, isErr?7000:3500); }
 function scToRow(cid,s){ return {commessa_id:cid,tipo:s.tipo,data:s.data||null,descrizione:s.descrizione||'',completata:!!s.completata,importo:s.importo||0,emessa:!!s.emessa,data_emissione:s.dataEmissione||null,incassata:!!s.incassata,data_incasso:s.dataIncasso||null}; }
 async function dbInsertCommessa(c){
   const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single();
@@ -1327,10 +1351,12 @@ function toggleSeedBanner(show){ const b=document.getElementById("seedBanner"); 
 function subscribeRealtime(){ if(!sbc||subscribed) return; subscribed=true;
   sbc.channel('rt-commesse').on('postgres_changes',{event:'*',schema:'public'},()=>scheduleReload()).subscribe(); }
 function scheduleReload(){ clearTimeout(realtimeTimer); realtimeTimer=setTimeout(()=>{
-  if(overlay.classList.contains('open')||resOverlay.classList.contains('open')) return;
-  const ae=document.activeElement; if(ae&&ae.classList&&ae.classList.contains('ts-in')) return;
+  const busy = overlay.classList.contains('open') || resOverlay.classList.contains('open');
+  const ae=document.activeElement, typing = ae&&ae.classList&&ae.classList.contains('ts-in');
+  const recent = (Date.now()-lastLocalEdit) < 4000;
+  if(busy||typing||recent){ scheduleReload(); return; }  // rimanda finché stai inserendo dati
   dbReloadRender();
-},700); }
+},1500); }
 
 /* Auth */
 async function boot(){
