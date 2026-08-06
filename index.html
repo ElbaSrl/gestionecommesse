@@ -1303,7 +1303,11 @@ async function loadFromDB(){
 async function dbReloadRender(){ await loadFromDB(); refreshFilterOptions(); renderAll();
   const tv=document.getElementById("view-timesheet"); if(tv&&tv.classList.contains("active")) renderTimesheet();
   const bv=document.getElementById("view-billing"); if(bv&&bv.classList.contains("active")) renderBilling(); }
-async function dbTsUpsert(resId,commId,day,ore){ if(!sbc)return; const {error}=await sbc.from('timesheet').upsert({risorsa_id:resId,commessa_id:commId,data:day,ore},{onConflict:'risorsa_id,commessa_id,data'}); if(error) notify("Ore non salvate: "+error.message, true); }
+async function dbTsUpsert(resId,commId,day,ore){ if(!sbc)return;
+  // cancella-e-reinserisci: non dipende da vincoli/indici unici (più robusto dell'upsert)
+  await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day});
+  const {error}=await sbc.from('timesheet').insert({risorsa_id:resId,commessa_id:commId,data:day,ore});
+  if(error) notify("Ore non salvate: "+error.message, true); }
 async function dbTsDelete(resId,commId,day){ if(!sbc)return; const {error}=await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day}); if(error) notify("Errore: "+error.message, true); }
 async function dbScUpdate(id,patch){ if(!sbc)return; const {error}=await sbc.from('scadenze').update(patch).eq('id',id); if(error) notify("Modifica non salvata: "+error.message, true); }
 function notify(msg,isErr){ const t=document.getElementById("toast"); if(!t)return; t.textContent=msg; t.style.background=isErr?levelColor("critical"):levelColor("good"); t.style.opacity="1"; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity="0"; }, isErr?7000:3500); }
