@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Commesse — Cloud (team)</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --surface-1: #fcfcfb; --page: #f9f9f7; --card: #ffffff;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6; --series-2: #1baf7a; --series-3: #eda100;
+    --violet: #4a3aa7; --orange: #eb6834;
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+    --shadow: 0 1px 2px rgba(11,11,11,0.06), 0 4px 12px rgba(11,11,11,0.04);
+    --radius: 12px;
+  }
+  html[data-theme="dark"] {
+    --surface-1: #1a1a19; --page: #0d0d0d; --card: #1f1f1e;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5; --series-2: #199e70; --series-3: #c98500;
+    --violet: #9085e9; --orange: #d95926;
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.3);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--page); color:var(--text-primary); font-size:14px; line-height:1.45; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width: 1340px; margin: 0 auto; padding: 22px 20px 64px; }
+
+  header.top { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+  header.top h1 { font-size:20px; margin:0; font-weight:650; letter-spacing:-0.01em; }
+  header.top .sub { color:var(--muted); font-size:12.5px; margin-top:2px; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+  button, select, input { font-family: inherit; font-size:13px; color:var(--text-primary); }
+  .btn { border:1px solid var(--border); background:var(--card); color:var(--text-primary); padding:8px 12px; border-radius:9px; cursor:pointer; font-weight:550; display:inline-flex; align-items:center; gap:6px; transition:background .12s,border-color .12s; }
+  .btn:hover { border-color:var(--baseline); }
+  .btn.primary { background:var(--series-1); color:#fff; border-color:transparent; }
+  .btn.primary:hover { filter:brightness(1.05); }
+  .btn.icon { padding:8px 10px; }
+  .btn.sm { padding:6px 9px; font-size:12px; }
+
+  /* tabs */
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:20px; flex-wrap:wrap; }
+  .tab { padding:10px 16px; cursor:pointer; border:none; background:transparent; color:var(--text-secondary); font-weight:600; font-size:14px; border-bottom:2px solid transparent; margin-bottom:-1px; border-radius:8px 8px 0 0; }
+  .tab:hover { background:color-mix(in srgb, var(--series-1) 6%, transparent); }
+  .tab.active { color:var(--series-1); border-bottom-color:var(--series-1); }
+  .view { display:none; }
+  .view.active { display:block; }
+
+  .kpis { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:22px; }
+  .kpi { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 15px; box-shadow:var(--shadow); min-width:0; }
+  .kpi .label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+  .kpi .value { font-size:22px; font-weight:680; margin-top:6px; letter-spacing:-0.02em; }
+  .kpi .value.tab { font-variant-numeric:tabular-nums; }
+  .kpi .foot { font-size:11.5px; color:var(--text-secondary); margin-top:4px; }
+  .kpi .foot .up { color:var(--good); font-weight:600; } .kpi .foot .down { color:var(--critical); font-weight:600; }
+  .bar-mini { height:6px; border-radius:4px; background:var(--grid); margin-top:9px; overflow:hidden; }
+  .bar-mini > span { display:block; height:100%; border-radius:4px; }
+
+  .filters { display:flex; gap:10px; flex-wrap:wrap; align-items:center; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; margin-bottom:20px; box-shadow:var(--shadow); }
+  .fgroup { display:flex; flex-direction:column; gap:4px; }
+  .filters label,.field label,.tsbar label { font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+  .filters select,.filters input { border:1px solid var(--border); background:var(--surface-1); border-radius:8px; padding:7px 9px; }
+  .filters .grow { flex:1; min-width:160px; }
+
+  .charts { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
+  .panel { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; box-shadow:var(--shadow); }
+  .panel h3 { margin:0 0 2px; font-size:14px; font-weight:620; }
+  .panel .psub { color:var(--muted); font-size:11.5px; margin-bottom:12px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--text-secondary); margin-bottom:8px; }
+  .legend .dot { width:10px; height:10px; border-radius:3px; display:inline-block; margin-right:5px; vertical-align:-1px; }
+
+  svg { display:block; width:100%; overflow:visible; }
+  svg text { fill:var(--text-secondary); font-family:inherit; }
+  .axis-label { fill:var(--muted); font-size:10.5px; }
+  .val-label { fill:var(--text-secondary); font-size:10.5px; font-variant-numeric:tabular-nums; }
+  .baseline { stroke:var(--baseline); stroke-width:1; }
+
+  .tablewrap { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+  .tablehead { display:flex; align-items:center; justify-content:space-between; padding:14px 18px 8px; flex-wrap:wrap; gap:8px; }
+  .tablehead h3 { margin:0; font-size:14px; font-weight:620; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  thead th { text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600; padding:10px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  thead th.sortable { cursor:pointer; user-select:none; }
+  thead th.num,tbody td.num,tfoot td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  thead th .arrow { opacity:.5; font-size:9px; }
+  tbody td { padding:11px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  tbody tr:last-child td { border-bottom:none; }
+  tbody tr.main { cursor:pointer; }
+  tbody tr.main:hover { background:color-mix(in srgb, var(--series-1) 5%, transparent); }
+  .cname { font-weight:600; } .cclient { color:var(--muted); font-size:11.5px; }
+  .pill { display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:100px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .pill .d { width:7px; height:7px; border-radius:50%; }
+  .barcell { display:flex; align-items:center; gap:8px; }
+  .barcell .track { flex:1; height:7px; background:var(--grid); border-radius:4px; overflow:hidden; min-width:46px; }
+  .barcell .track > span { display:block; height:100%; border-radius:4px; }
+  .barcell .pct { font-size:11px; color:var(--text-secondary); width:34px; text-align:right; font-variant-numeric:tabular-nums; }
+  .margin-tag { font-weight:650; font-variant-numeric:tabular-nums; }
+  .row-actions { display:flex; gap:4px; justify-content:flex-end; }
+  .row-actions button { border:none; background:transparent; cursor:pointer; color:var(--muted); padding:4px 6px; border-radius:6px; font-size:13px; }
+  .row-actions button:hover { background:var(--grid); color:var(--text-primary); }
+  tr.detail td { background:var(--surface-1); padding:0; }
+  .detailinner { padding:8px 18px 16px 40px; display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .detailinner .col { min-width:0; }
+  .detailinner h5 { margin:6px 0 6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
+  .restable { width:100%; }
+  .restable th,.restable td { padding:6px 10px 6px 0; border:none; font-size:12px; }
+  .restable th { text-transform:none; letter-spacing:0; color:var(--muted); border-bottom:1px solid var(--border); }
+  .warn-flags { display:flex; gap:6px; flex-wrap:wrap; margin:2px 0 6px; }
+  .flag { font-size:10.5px; padding:1px 7px; border-radius:6px; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+  .mini-sc { font-size:12px; padding:5px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; gap:8px; }
+  .mini-sc:last-child { border-bottom:none; }
+  .empty { text-align:center; color:var(--muted); padding:36px; font-size:13px; }
+
+  /* timesheet */
+  .tsbar { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; margin-bottom:18px; box-shadow:var(--shadow); }
+  .tsbar .fgroup select { border:1px solid var(--border); background:var(--surface-1); border-radius:8px; padding:7px 9px; min-width:180px; }
+  .weeknav { display:flex; align-items:center; gap:6px; }
+  .weeknav .wklabel { font-weight:600; min-width:150px; text-align:center; font-variant-numeric:tabular-nums; }
+  .tsgrid-wrap { overflow-x:auto; }
+  table.tsgrid { min-width:720px; }
+  table.tsgrid th,table.tsgrid td { padding:8px 8px; border-bottom:1px solid var(--border); }
+  table.tsgrid thead th { text-align:center; }
+  table.tsgrid thead th.cmm { text-align:left; min-width:200px; }
+  table.tsgrid th.today,table.tsgrid td.today { background:color-mix(in srgb, var(--series-1) 8%, transparent); }
+  table.tsgrid th.wknd { color:var(--muted); }
+  .daynum { font-size:11px; color:var(--muted); font-weight:500; }
+  .ts-in { width:52px; text-align:center; border:1px solid var(--border); background:var(--surface-1); border-radius:7px; padding:6px 4px; font-variant-numeric:tabular-nums; }
+  .ts-in:focus { outline:2px solid var(--series-1); outline-offset:-1px; border-color:transparent; }
+  .tsgrid .cmm-name { font-weight:600; } .tsgrid .cmm-client { font-size:11px; color:var(--muted); }
+  .tsgrid tfoot td,.tsgrid .rowtot { font-weight:650; font-variant-numeric:tabular-nums; text-align:center; }
+  .daytot.over { color:var(--critical); } .daytot.full { color:var(--good); }
+  .tsgrid .delrow { border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;padding:2px 6px;border-radius:6px; }
+  .tsgrid .delrow:hover { background:var(--grid); color:var(--critical); }
+
+  /* status pill for fatture */
+  .fstat { display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:100px; font-size:11px; font-weight:600; }
+  .chk { width:18px; height:18px; cursor:pointer; accent-color:var(--good); }
+  .tipo-badge { font-size:10.5px; font-weight:600; padding:1px 8px; border-radius:6px; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+
+  /* modal */
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:flex-start; justify-content:center; padding:32px 16px; z-index:50; overflow:auto; }
+  .overlay.open { display:flex; }
+  .modal { background:var(--card); border-radius:14px; width:100%; max-width:760px; box-shadow:0 20px 60px rgba(0,0,0,.3); border:1px solid var(--border); }
+  .modal.narrow { max-width:520px; }
+  .modal header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border); }
+  .modal header h2 { margin:0; font-size:16px; }
+  .modal .body { padding:16px 20px; }
+  .formgrid { display:grid; grid-template-columns:1fr 1fr; gap:13px; }
+  .field { display:flex; flex-direction:column; gap:5px; }
+  .field.full { grid-column:1 / -1; }
+  .field input,.field select { border:1px solid var(--border); background:var(--surface-1); border-radius:8px; padding:8px 10px; width:100%; }
+  .field .hint { font-size:10.5px; color:var(--muted); text-transform:none; letter-spacing:0; }
+  .sec-head { display:flex; align-items:center; justify-content:space-between; margin:20px 0 8px; }
+  .sec-head h4 { margin:0; font-size:13px; }
+  .alloc-row { display:grid; grid-template-columns:1.6fr .7fr auto; gap:8px; align-items:end; margin-bottom:8px; }
+  .sc-row { display:grid; grid-template-columns:1fr 1fr; gap:8px 10px; border:1px solid var(--border); border-radius:10px; padding:10px; margin-bottom:8px; background:var(--surface-1); }
+  .sc-row .field label { font-size:9.5px; }
+  .sc-row .sc-fatt { grid-column:1 / -1; display:none; grid-template-columns:repeat(2,1fr); gap:8px 10px; padding-top:6px; border-top:1px dashed var(--border); }
+  .sc-row.is-fatt .sc-fatt { display:grid; }
+  .sc-row .sc-top { grid-column:1 / -1; display:flex; justify-content:space-between; align-items:center; }
+  .flagline { display:flex; align-items:center; gap:8px; font-size:12px; }
+  .del-x { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:16px; padding:6px; border-radius:6px; }
+  .del-x:hover { background:var(--grid); color:var(--critical); }
+  .modal footer { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:14px 20px; border-top:1px solid var(--border); flex-wrap:wrap; }
+  .modal footer .right { display:flex; gap:8px; }
+  .live-margin { font-size:12px; color:var(--text-secondary); }
+  .live-margin b { font-variant-numeric:tabular-nums; }
+  .anag-row { display:grid; grid-template-columns:1.4fr 1fr .7fr auto; gap:8px; align-items:end; margin-bottom:8px; }
+
+  .tip { position:fixed; pointer-events:none; background:var(--text-primary); color:var(--page); font-size:11.5px; padding:6px 9px; border-radius:7px; opacity:0; transition:opacity .08s; z-index:80; white-space:nowrap; box-shadow:0 4px 12px rgba(0,0,0,.25); font-variant-numeric:tabular-nums; }
+  .tip .tt { font-weight:600; }
+  .hbar-track:hover { opacity:.85; }
+  .file-hidden { display:none; }
+
+  @media (max-width: 920px) {
+    .kpis { grid-template-columns:repeat(2,1fr); }
+    .charts { grid-template-columns:1fr; }
+    .formgrid { grid-template-columns:1fr; }
+    .detailinner { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Dashboard Commesse</h1>
+      <div class="sub">Controllo di gestione — importi, tempi, timesheet, scadenze, fatturazione e marginalità</div>
+    </div>
+    <div class="toolbar">
+      <button class="btn" id="themeBtn" title="Tema chiaro/scuro">◐ Tema</button>
+      <button class="btn" id="importBtn" title="Carica un file JSON esportato in precedenza">↥ Importa</button>
+      <button class="btn" id="exportBtn" title="Scarica tutto (commesse, risorse, timesheet) in JSON">↧ Esporta</button>
+      <button class="btn primary" id="addBtn">＋ Nuova commessa</button>
+      <span id="userChip" style="font-size:12px;color:var(--muted);margin-left:4px"></span>
+      <button class="btn" id="logoutBtn" style="display:none">Esci</button>
+      <input type="file" id="fileInput" accept="application/json,.json" class="file-hidden">
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-view="overview">Panoramica</button>
+    <button class="tab" data-view="timesheet">Timesheet</button>
+    <button class="tab" data-view="billing">Scadenze &amp; Fatturazione</button>
+  </div>
+
+  <!-- ============ PANORAMICA ============ -->
+  <section class="view active" id="view-overview">
+    <div id="seedBanner" style="display:none;background:color-mix(in srgb,var(--series-1) 10%,transparent);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px;font-size:13px">
+      Il database condiviso è vuoto.
+      <button class="btn sm primary" id="seedBtn" style="margin-left:8px">Carica dati di esempio</button>
+      <span style="color:var(--muted);margin-left:8px">oppure crea la prima commessa con "＋ Nuova commessa", o importa un file JSON.</span>
+    </div>
+    <div class="kpis" id="kpis"></div>
+
+    <div class="filters">
+      <div class="fgroup grow"><label for="search">Cerca</label><input type="text" id="search" placeholder="Commessa o cliente…"></div>
+      <div class="fgroup"><label for="fStato">Stato</label><select id="fStato"><option value="">Tutti</option></select></div>
+      <div class="fgroup"><label for="fCliente">Cliente</label><select id="fCliente"><option value="">Tutti</option></select></div>
+      <div class="fgroup"><label for="fRisorsa">Risorsa</label><select id="fRisorsa"><option value="">Tutte</option></select></div>
+      <div class="fgroup"><label for="fRischio">Vista</label><select id="fRischio">
+        <option value="">Tutte le commesse</option><option value="risk">Solo a rischio</option><option value="open">Solo in corso</option>
+      </select></div>
+    </div>
+
+    <div class="charts">
+      <div class="panel"><h3>Marginalità per commessa</h3><div class="psub">Margine € (ricavi − costo timesheet) e margine %. Colore = salute del margine.</div><div id="chartMargin"></div></div>
+      <div class="panel"><h3>Ore previste vs realizzate</h3><div class="psub">Ore a budget vs consuntivo timesheet.</div>
+        <div class="legend"><span><span class="dot" style="background:var(--series-1)"></span>Previste</span><span><span class="dot" style="background:var(--series-2)"></span>Realizzate</span></div>
+        <div id="chartHours"></div></div>
+      <div class="panel"><h3>Carico risorse</h3><div class="psub">Ore realizzate a timesheet per risorsa, sulle commesse filtrate.</div><div id="chartRes"></div></div>
+      <div class="panel"><h3>Prossime scadenze</h3><div class="psub">Milestone, consegne, visite e fatturazioni in arrivo (prossimi 60 giorni).</div><div id="chartDeadlines"></div></div>
+    </div>
+
+    <div class="tablewrap">
+      <div class="tablehead"><h3>Elenco commesse <span id="rowCount" style="color:var(--muted);font-weight:500"></span></h3></div>
+      <div style="overflow-x:auto">
+        <table id="tbl">
+          <thead><tr>
+            <th class="sortable" data-sort="nome">Commessa <span class="arrow"></span></th>
+            <th class="sortable" data-sort="stato">Stato <span class="arrow"></span></th>
+            <th class="sortable" data-sort="scadenza">Scadenza <span class="arrow"></span></th>
+            <th class="num sortable" data-sort="importo">Importo <span class="arrow"></span></th>
+            <th class="num sortable" data-sort="avanzamento">Avanz. ore <span class="arrow"></span></th>
+            <th class="num sortable" data-sort="ore">Ore P/R <span class="arrow"></span></th>
+            <th class="num sortable" data-sort="incassato">Incassato <span class="arrow"></span></th>
+            <th class="num sortable" data-sort="margineEuro">Margine € <span class="arrow"></span></th>
+            <th class="num sortable" data-sort="marginePct">Margine % <span class="arrow"></span></th>
+            <th></th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TIMESHEET ============ -->
+  <section class="view" id="view-timesheet">
+    <div class="tsbar">
+      <div class="fgroup"><label for="tsRes">Risorsa</label><select id="tsRes"></select></div>
+      <div class="fgroup"><label>Settimana</label>
+        <div class="weeknav">
+          <button class="btn sm" id="wkPrev">‹</button>
+          <span class="wklabel" id="wkLabel"></span>
+          <button class="btn sm" id="wkNext">›</button>
+          <button class="btn sm" id="wkToday">Oggi</button>
+        </div>
+      </div>
+      <div class="fgroup" style="margin-left:auto"><label>&nbsp;</label>
+        <div style="display:flex;gap:8px">
+          <button class="btn sm" id="manageRes">Gestisci risorse</button>
+          <button class="btn sm" id="tsCsv">↧ Timesheet CSV</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div id="tsSummary" class="psub" style="margin-bottom:10px"></div>
+      <div class="tsgrid-wrap"><div id="tsGrid"></div></div>
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--muted)">Aggiungi ore su un'altra commessa questa settimana:</span>
+        <select id="tsAddCommessa" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px"></select>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCADENZE & FATTURAZIONE ============ -->
+  <section class="view" id="view-billing">
+    <div class="kpis" id="billKpis" style="grid-template-columns:repeat(5,1fr)"></div>
+
+    <div class="charts" style="grid-template-columns:1fr">
+      <div class="panel">
+        <div class="tablehead" style="padding:0 0 10px"><h3>Piano di fatturazione</h3>
+          <div class="fgroup"><select id="fBillCommessa" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px"><option value="">Tutte le commesse</option></select></div>
+        </div>
+        <div class="psub" style="margin-bottom:8px">Spunta <b>Emessa</b> quando emetti la fattura e <b>Incassata</b> quando ricevi il pagamento.</div>
+        <div style="overflow-x:auto">
+          <table id="billTbl">
+            <thead><tr>
+              <th>Commessa</th><th>Tranche</th><th class="num">Importo</th><th>Scadenza</th>
+              <th>Stato</th><th style="text-align:center">Emessa</th><th style="text-align:center">Incassata</th>
+            </tr></thead>
+            <tbody id="billBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts" style="grid-template-columns:1fr">
+      <div class="panel">
+        <div class="tablehead" style="padding:0 0 10px"><h3>Milestone, consegne e visite</h3>
+          <div class="fgroup"><select id="fScTipo" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px">
+            <option value="">Tutti i tipi</option><option value="intermedia">Milestone</option><option value="finale">Consegna finale</option><option value="visita">Visita in loco</option>
+          </select></div>
+        </div>
+        <div style="overflow-x:auto">
+          <table id="scTbl">
+            <thead><tr><th>Tipo</th><th>Commessa</th><th>Descrizione</th><th>Data</th><th>Quando</th><th style="text-align:center">Fatta</th></tr></thead>
+            <tbody id="scBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Modal commessa -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <header><h2 id="modalTitle">Nuova commessa</h2><button class="btn icon" id="closeModal">✕</button></header>
+    <div class="body">
+      <div class="formgrid">
+        <div class="field"><label>Nome commessa</label><input type="text" id="mNome" placeholder="es. Piano industriale Alfa"></div>
+        <div class="field"><label>Cliente</label><input type="text" id="mCliente" placeholder="es. Alfa S.p.A."></div>
+        <div class="field"><label>Stato</label><select id="mStato"><option>In corso</option><option>In pausa</option><option>A rischio</option><option>Completata</option><option>Non avviata</option></select></div>
+        <div class="field"><label>Importo contrattualizzato (€)</label><input type="number" id="mImporto" min="0" step="500" placeholder="0"></div>
+        <div class="field"><label>Data inizio</label><input type="date" id="mInizio"></div>
+        <div class="field"><label>Scadenza finale (consegna)</label><input type="date" id="mScadenza"></div>
+        <div class="field full"><label>Ore previste totali (a budget)</label><input type="number" id="mOrePreviste" min="0" step="1" placeholder="Se vuoto, usa la somma delle ore allocate"><span class="hint">Lascia vuoto per calcolarle dalla somma delle ore allocate qui sotto.</span></div>
+      </div>
+
+      <div class="sec-head"><h4>Risorse allocate (ore a budget)</h4><button class="btn sm" id="addAllocBtn" type="button">＋ Risorsa</button></div>
+      <div id="allocRows"></div>
+      <div class="hint" style="color:var(--muted)">Le ore <b>realizzate</b> e i costi si calcolano automaticamente dal Timesheet. Qui indichi solo le ore pianificate.</div>
+
+      <div class="sec-head"><h4>Scadenze (milestone, fatturazione, visite)</h4><button class="btn sm" id="addScBtn" type="button">＋ Scadenza</button></div>
+      <div id="scRows"></div>
+    </div>
+    <footer>
+      <div class="live-margin" id="liveMargin"></div>
+      <div class="right"><button class="btn" id="cancelBtn">Annulla</button><button class="btn primary" id="saveBtn">Salva commessa</button></div>
+    </footer>
+  </div>
+</div>
+
+<!-- Modal anagrafica risorse -->
+<div class="overlay" id="resOverlay">
+  <div class="modal narrow">
+    <header><h2>Anagrafica risorse</h2><button class="btn icon" id="closeRes">✕</button></header>
+    <div class="body">
+      <div class="hint" style="color:var(--muted);margin-bottom:10px">Nome, ruolo e costo orario interno di ciascuna risorsa. Il costo alimenta il calcolo dei margini.</div>
+      <div class="anag-row" style="font-weight:600;color:var(--muted);font-size:10.5px;text-transform:uppercase">
+        <div>Nome</div><div>Ruolo</div><div>Costo €/h</div><div></div>
+      </div>
+      <div id="anagRows"></div>
+      <button class="btn sm" id="addAnagBtn" type="button" style="margin-top:6px">＋ Aggiungi risorsa</button>
+    </div>
+    <footer><div></div><div class="right"><button class="btn primary" id="saveRes">Salva</button></div></footer>
+  </div>
+</div>
+
+<!-- Gate configurazione -->
+<div class="overlay" id="cfgGate" style="background:var(--page)">
+  <div class="modal" style="margin-top:6vh">
+    <header><h2>Configurazione richiesta</h2></header>
+    <div class="body">
+      <p style="font-size:13px;color:var(--text-secondary)">Per collegare la dashboard al database condiviso, apri questo file con un editor di testo e incolla il <b>Project URL</b> e la chiave <b>anon public</b> del tuo progetto Supabase nella sezione <code>CONFIG SUPABASE</code> in cima allo script. Salva e ricarica la pagina.</p>
+      <p style="font-size:12.5px;color:var(--muted)">I due valori sono in Supabase → Project Settings → API. La guida di attivazione allegata spiega ogni passaggio.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Gate login -->
+<div class="overlay" id="authGate" style="background:var(--page)">
+  <div class="modal narrow" style="margin-top:6vh">
+    <header><h2>Dashboard Commesse — Accesso</h2></header>
+    <div class="body">
+      <div class="field" style="margin-bottom:12px"><label>Email</label><input type="email" id="authEmail" placeholder="nome@studiotomalino.it"></div>
+      <div class="field"><label>Password</label><input type="password" id="authPwd" placeholder="••••••••"></div>
+      <div id="authMsg" style="font-size:12.5px;margin-top:12px;min-height:16px;color:var(--muted)"></div>
+    </div>
+    <footer>
+      <button class="btn" id="signupBtn">Registrati</button>
+      <div class="right"><button class="btn primary" id="loginBtn">Accedi</button></div>
+    </footer>
+  </div>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   MODELLO DATI
+   - anagrafica: risorse globali con costo orario interno
+   - commesse: importo, scadenza finale, allocazioni (ore budget), scadenze[]
+   - timesheet: righe giornaliere {risorsaId, commessaId, data, ore}
+                => fonte del consuntivo ore e costi (marginalità)
+   Scadenze tipo: intermedia | finale | fatturazione | visita
+   Fatturazione: importo + emessa/incassata (con date)
+   I dati vivono in memoria: usa Esporta/Importa per salvarli.
+   ============================================================ */
+const _now = new Date();
+const todayISO = _now.getFullYear()+"-"+String(_now.getMonth()+1).padStart(2,"0")+"-"+String(_now.getDate()).padStart(2,"0");
+const TODAY = parseISO(todayISO);
+
+/* ============================================================
+   CONFIG SUPABASE — INCOLLA QUI I DUE VALORI DEL TUO PROGETTO
+   Li trovi in: Supabase → Project Settings → API
+     • SUPABASE_URL       = "Project URL"     (es. https://abcd.supabase.co)
+     • SUPABASE_ANON_KEY  = chiave "anon public"
+   Salva il file e ricarica la pagina.
+   ============================================================ */
+const SUPABASE_URL = "https://aredkkgfyymwhstavwly.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyZWRra2dmeXltd2hzdGF2d2x5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYwMDI5MzAsImV4cCI6MjEwMTU3ODkzMH0.JSKuDvCaSfRAayJ-OUUNq3oOhgQYo3twVzk017XvxRc";
+/* ============================================================ */
+const CONFIGURED = SUPABASE_URL.indexOf("http")===0 && SUPABASE_ANON_KEY.length>20;
+let sbc = null;
+if (CONFIGURED && window.supabase) sbc = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let _scid = 0;
+let anagrafica = [];
+let commesse = [];
+let timesheet = [];
+let currentUser = null;
+let subscribed = false;
+let realtimeTimer = null;
+
+let sortKey = "scadenza", sortDir = 1, editId = null;
+let tsResId = null;
+let tsWeek = mondayOf(TODAY);
+let tsExtra = {}; // { "resId|weekISO": Set(commessaId) }
+
+/* ---------- Seed ---------- */
+function seedAnagrafica() {
+  return [
+    { id:"r1", nome:"Marco Rossi", ruolo:"Partner", costo:90 },
+    { id:"r2", nome:"Laura Bianchi", ruolo:"Senior", costo:55 },
+    { id:"r3", nome:"Giulia Verdi", ruolo:"Analyst", costo:32 },
+    { id:"r4", nome:"Paolo Neri", ruolo:"Manager", costo:65 },
+    { id:"r5", nome:"Sara Conti", ruolo:"Consultant", costo:40 },
+    { id:"r6", nome:"Luca Ferrari", ruolo:"Analyst", costo:30 },
+  ];
+}
+function seedCommesse() {
+  return [
+    { id:"c1", nome:"Piano industriale 2026-28", cliente:"Alfa Manifatturiera S.p.A.", stato:"In corso",
+      inizio:"2026-03-02", scadenza:"2026-07-31", importo:48000, orePreviste:0,
+      allocazioni:[{risorsaId:"r1",alloc:60,real:52},{risorsaId:"r2",alloc:180,real:171},{risorsaId:"r3",alloc:180,real:168}],
+      scadenze:[
+        sc("intermedia","2026-03-20","Raccolta dati e analisi as-is",true),
+        sc("visita","2026-04-10","Visita stabilimento produttivo",true),
+        sc("intermedia","2026-06-15","Bozza piano industriale",true),
+        fatt("2026-03-15","Acconto 40%",19200,true,"2026-03-16",true,"2026-04-12"),
+        fatt("2026-06-05","SAL 30%",14400,true,"2026-06-06",false,""),
+        fatt("2026-07-31","Saldo 30%",14400,false,"",false,""),
+      ]},
+    { id:"c2", nome:"Due diligence acquisizione Beta", cliente:"Delta Capital", stato:"In corso",
+      inizio:"2026-05-11", scadenza:"2026-07-24", importo:62000, orePreviste:0,
+      allocazioni:[{risorsaId:"r1",alloc:70,real:74},{risorsaId:"r4",alloc:150,real:158},{risorsaId:"r5",alloc:160,real:149}],
+      scadenze:[
+        sc("intermedia","2026-06-10","Data room review",true),
+        sc("visita","2026-06-20","Visita azienda target",true),
+        fatt("2026-05-15","Acconto 50%",31000,true,"2026-05-16",true,"2026-06-14"),
+        fatt("2026-07-24","Saldo 50%",31000,false,"",false,""),
+      ]},
+    { id:"c3", nome:"Riorganizzazione supply chain", cliente:"Gamma Retail", stato:"In corso",
+      inizio:"2026-04-01", scadenza:"2026-09-15", importo:85000, orePreviste:0,
+      allocazioni:[{risorsaId:"r4",alloc:200,real:132},{risorsaId:"r2",alloc:250,real:165},{risorsaId:"r6",alloc:250,real:141}],
+      scadenze:[
+        sc("intermedia","2026-05-30","Mappatura processi",true),
+        sc("visita","2026-05-08","Visita magazzino centrale",true),
+        sc("intermedia","2026-07-31","Disegno modello to-be",false),
+        sc("visita","2026-07-28","Visita hub logistico",false),
+        fatt("2026-04-10","Acconto 30%",25500,true,"2026-04-11",true,"2026-05-10"),
+        fatt("2026-06-30","SAL 35%",29750,true,"2026-07-01",false,""),
+        fatt("2026-09-15","Saldo 35%",29750,false,"",false,""),
+      ]},
+    { id:"c4", nome:"Assessment digitale & CRM", cliente:"Epsilon Servizi", stato:"A rischio",
+      inizio:"2026-02-10", scadenza:"2026-07-18", importo:34000, orePreviste:0,
+      allocazioni:[{risorsaId:"r5",alloc:150,real:188},{risorsaId:"r3",alloc:150,real:176}],
+      scadenze:[
+        sc("intermedia","2026-04-15","Assessment as-is",true),
+        fatt("2026-02-20","Acconto 50%",17000,true,"2026-02-21",true,"2026-03-25"),
+        fatt("2026-05-30","Saldo 50%",17000,true,"2026-06-01",false,""),
+      ]},
+    { id:"c5", nome:"Modello di costing ABC", cliente:"Alfa Manifatturiera S.p.A.", stato:"In corso",
+      inizio:"2026-06-01", scadenza:"2026-08-29", importo:27000, orePreviste:0,
+      allocazioni:[{risorsaId:"r2",alloc:120,real:44},{risorsaId:"r6",alloc:120,real:39}],
+      scadenze:[
+        sc("intermedia","2026-07-15","Raccolta driver di costo",false),
+        fatt("2026-06-10","Acconto 50%",13500,true,"2026-06-11",false,""),
+        fatt("2026-08-29","Saldo 50%",13500,false,"",false,""),
+      ]},
+    { id:"c6", nome:"Business plan startup Zeta", cliente:"Zeta Innovation", stato:"Completata",
+      inizio:"2026-01-15", scadenza:"2026-04-30", importo:22000, orePreviste:0,
+      allocazioni:[{risorsaId:"r4",alloc:60,real:63},{risorsaId:"r5",alloc:140,real:131}],
+      scadenze:[
+        fatt("2026-01-20","Acconto 40%",8800,true,"2026-01-21",true,"2026-02-18"),
+        fatt("2026-04-30","Saldo 60%",13200,true,"2026-05-02",true,"2026-06-01"),
+      ]},
+    { id:"c7", nome:"Ottimizzazione fiscale gruppo", cliente:"Delta Capital", stato:"In pausa",
+      inizio:"2026-05-20", scadenza:"2026-10-10", importo:41000, orePreviste:0,
+      allocazioni:[{risorsaId:"r1",alloc:80,real:22},{risorsaId:"r2",alloc:240,real:61}],
+      scadenze:[
+        sc("intermedia","2026-06-30","Analisi struttura societaria",true),
+        fatt("2026-05-25","Acconto 30%",12300,true,"2026-05-26",true,"2026-06-24"),
+        fatt("2026-10-10","Saldo 70%",28700,false,"",false,""),
+      ]},
+    { id:"c8", nome:"Ricerca di mercato food", cliente:"Gamma Retail", stato:"Completata",
+      inizio:"2025-11-03", scadenza:"2026-02-20", importo:18500, orePreviste:0,
+      allocazioni:[{risorsaId:"r3",alloc:100,real:96},{risorsaId:"r6",alloc:80,real:91}],
+      scadenze:[
+        fatt("2025-11-10","Acconto 50%",9250,true,"2025-11-11",true,"2025-12-10"),
+        fatt("2026-02-20","Saldo 50%",9250,true,"2026-02-22",true,"2026-03-20"),
+      ]},
+  ];
+}
+function sc(tipo, data, descrizione, completata){ return { id:"s"+(_scid++), tipo, data, descrizione, completata:!!completata }; }
+function fatt(data, descrizione, importo, emessa, dataEmissione, incassata, dataIncasso){
+  return { id:"s"+(_scid++), tipo:"fatturazione", data, descrizione, importo, emessa:!!emessa, dataEmissione:dataEmissione||"", incassata:!!incassata, dataIncasso:dataIncasso||"", completata:!!incassata };
+}
+
+/* Timesheet generato: distribuisce le ore target (allocazioni.real) sui giorni feriali */
+function genTimesheet() {
+  const ts = []; let idc = 0;
+  commesse.forEach(c => {
+    const end = minISO(c.scadenza || todayISO, todayISO);
+    (c.allocazioni||[]).forEach(a => {
+      const target = +a.real || 0; if (target <= 0) return;
+      const days = weekdaysBetween(c.inizio, end);
+      if (!days.length) return;
+      const per = target / days.length; let remaining = target;
+      days.forEach((d,i) => {
+        let h = (i === days.length-1) ? remaining : Math.round(per*2)/2;
+        remaining = Math.round((remaining - h)*10)/10;
+        if (h > 0) ts.push({ id:"t"+(idc++), risorsaId:a.risorsaId, commessaId:c.id, data:d, ore:Math.round(h*10)/10 });
+      });
+    });
+  });
+  return ts;
+}
+
+/* ---------- Utility ---------- */
+function uid(p){ return (p||"x") + Math.random().toString(36).slice(2,9); }
+function euro(n){ return "€" + Math.round(n).toLocaleString("it-IT"); }
+function euroK(n){ return Math.abs(n)>=1000 ? "€"+(n/1000).toLocaleString("it-IT",{maximumFractionDigits:1})+"k" : "€"+Math.round(n).toLocaleString("it-IT"); }
+function pct(n){ return (n*100).toLocaleString("it-IT",{maximumFractionDigits:0})+"%"; }
+function h1(n){ return (Math.round(n*10)/10).toLocaleString("it-IT",{maximumFractionDigits:1}); }
+function parseISO(s){ const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); }
+function iso(dt){ return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0"); }
+function addDays(dt,n){ const x=new Date(dt); x.setDate(x.getDate()+n); return x; }
+function mondayOf(dt){ const x=new Date(dt); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); x.setHours(0,0,0,0); return x; }
+function minISO(a,b){ return a<b ? a : b; }
+function weekdaysBetween(startISO, endISO){
+  const out=[]; if(!startISO||!endISO) return out;
+  let d=parseISO(startISO); const end=parseISO(endISO); let guard=0;
+  while(d<=end && guard++<2000){ const wd=d.getDay(); if(wd!==0 && wd!==6) out.push(iso(d)); d=addDays(d,1); }
+  return out;
+}
+function fmtDate(s){ if(!s) return "—"; const d=parseISO(s); return d.toLocaleDateString("it-IT",{day:"2-digit",month:"short",year:"numeric"}); }
+function fmtDayShort(s){ const d=parseISO(s); return d.toLocaleDateString("it-IT",{day:"2-digit",month:"short"}); }
+function daysTo(s){ if(!s) return null; return Math.round((parseISO(s)-TODAY)/86400000); }
+function resById(id){ return anagrafica.find(r=>r.id===id) || {nome:"?",ruolo:"",costo:0}; }
+function commById(id){ return commesse.find(c=>c.id===id); }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+function escapeAttr(s){ return escapeHtml(s).replace(/\|/g,"∣"); }
+function levelColor(lvl){ return getComputedStyle(document.documentElement).getPropertyValue("--"+lvl).trim(); }
+function cssVar(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+/* ---------- Derivazioni ---------- */
+function tsForCommessa(id){ return timesheet.filter(t=>t.commessaId===id); }
+function derive(c){
+  const alloc = c.allocazioni||[];
+  const entries = tsForCommessa(c.id);
+  const oreReal = entries.reduce((s,t)=>s+(+t.ore||0),0);
+  const oreAlloc = alloc.reduce((s,a)=>s+(+a.alloc||0),0);
+  const orePreviste = (+c.orePreviste)>0 ? +c.orePreviste : oreAlloc;
+  // costo realizzato dal timesheet
+  const costoReal = entries.reduce((s,t)=>s+(+t.ore||0)*(resById(t.risorsaId).costo||0),0);
+  const costoBudget = alloc.reduce((s,a)=>s+(+a.alloc||0)*(resById(a.risorsaId).costo||0),0);
+  const importo = +c.importo||0;
+  const margineEuro = importo - costoReal;
+  const marginePct = importo>0 ? margineEuro/importo : 0;
+  const avanzamento = orePreviste>0 ? oreReal/orePreviste : 0;
+  const gg = daysTo(c.scadenza);
+  const completata = c.stato==="Completata";
+  // per risorsa
+  const perRes = {};
+  alloc.forEach(a=>{ perRes[a.risorsaId] = { risorsaId:a.risorsaId, alloc:+a.alloc||0, real:0 }; });
+  entries.forEach(t=>{ (perRes[t.risorsaId] = perRes[t.risorsaId] || {risorsaId:t.risorsaId,alloc:0,real:0}).real += (+t.ore||0); });
+  // fatturazione
+  const fatture = (c.scadenze||[]).filter(s=>s.tipo==="fatturazione");
+  const fPian = fatture.reduce((s,f)=>s+(+f.importo||0),0);
+  const fEmesso = fatture.filter(f=>f.emessa).reduce((s,f)=>s+(+f.importo||0),0);
+  const fIncassato = fatture.filter(f=>f.incassata).reduce((s,f)=>s+(+f.importo||0),0);
+  const daIncassare = fEmesso - fIncassato;
+  const daFatturare = importo - fEmesso;
+
+  const flags=[];
+  if(oreReal>orePreviste && orePreviste>0) flags.push({t:"Sforamento ore",lvl:"serious"});
+  if(marginePct<0) flags.push({t:"Margine negativo",lvl:"critical"});
+  else if(marginePct<0.15 && importo>0) flags.push({t:"Margine basso",lvl:"warning"});
+  if(!completata && gg!==null && gg<0) flags.push({t:"Scaduta",lvl:"critical"});
+  else if(!completata && gg!==null && gg<=14) flags.push({t:"In scadenza",lvl:"warning"});
+  const overdueFatt = fatture.some(f=>!f.incassata && f.data<todayISO && f.emessa);
+  if(overdueFatt) flags.push({t:"Incasso in ritardo",lvl:"warning"});
+  const atRisk = flags.some(f=>f.lvl==="critical"||f.lvl==="serious") || (!completata && marginePct<0.15 && importo>0);
+
+  return { ...c, oreReal, oreAlloc, orePreviste, costoReal, costoBudget, importo,
+    margineEuro, marginePct, avanzamento, gg, completata, perRes, flags, atRisk,
+    fatture, fPian, fEmesso, fIncassato, daIncassare, daFatturare, incassato:fIncassato };
+}
+function marginLevel(p){ return p<0?"critical":p<0.15?"serious":p<0.25?"warning":"good"; }
+function statoColor(s){ const m={ "In corso":"--good","Completata":"--series-1","In pausa":"--warning","A rischio":"--critical","Non avviata":"--muted" }; return cssVar(m[s]||"--muted"); }
+
+/* tipo scadenza */
+const TIPI = {
+  intermedia:{ label:"Milestone", color:"--series-1", icon:"◆" },
+  finale:    { label:"Consegna", color:"--violet", icon:"●" },
+  fatturazione:{ label:"Fatturazione", color:"--good", icon:"€" },
+  visita:    { label:"Visita", color:"--orange", icon:"⚑" },
+};
+function tipoColor(t){ return cssVar((TIPI[t]||TIPI.intermedia).color); }
+
+/* tutte le scadenze in lista piatta (inclusa la finale sintetica) */
+function allDeadlines(){
+  const out=[];
+  commesse.forEach(c=>{
+    (c.scadenze||[]).forEach(s=> out.push({ ...s, commessaId:c.id, commessaNome:c.nome, cliente:c.cliente }));
+    if(c.scadenza) out.push({ id:"fin_"+c.id, tipo:"finale", data:c.scadenza, descrizione:"Consegna finale", completata:c.stato==="Completata", commessaId:c.id, commessaNome:c.nome, cliente:c.cliente, synthetic:true });
+  });
+  return out;
+}
+function fattStatus(f){
+  if(f.incassata) return {lvl:"good", label:"Incassata"};
+  if(f.emessa && f.data<todayISO) return {lvl:"critical", label:"Emessa · incasso in ritardo"};
+  if(f.emessa) return {lvl:"warning", label:"Emessa · da incassare"};
+  if(f.data<todayISO) return {lvl:"serious", label:"Da emettere · scaduta"};
+  return {lvl:"muted", label:"Pianificata"};
+}
+
+/* ---------- Filtri ---------- */
+const state = { search:"",stato:"",cliente:"",risorsa:"",vista:"" };
+function filtered(){
+  let arr = commesse.map(derive);
+  if(state.search){ const q=state.search.toLowerCase(); arr=arr.filter(c=>c.nome.toLowerCase().includes(q)||c.cliente.toLowerCase().includes(q)); }
+  if(state.stato) arr=arr.filter(c=>c.stato===state.stato);
+  if(state.cliente) arr=arr.filter(c=>c.cliente===state.cliente);
+  if(state.risorsa) arr=arr.filter(c=>(c.allocazioni||[]).some(a=>a.risorsaId===state.risorsa)||tsForCommessa(c.id).some(t=>t.risorsaId===state.risorsa));
+  if(state.vista==="risk") arr=arr.filter(c=>c.atRisk);
+  if(state.vista==="open") arr=arr.filter(c=>c.stato==="In corso");
+  arr.sort((a,b)=>{
+    let va,vb;
+    switch(sortKey){
+      case "nome": va=a.nome.toLowerCase(); vb=b.nome.toLowerCase(); break;
+      case "stato": va=a.stato; vb=b.stato; break;
+      case "scadenza": va=a.scadenza||"9999"; vb=b.scadenza||"9999"; break;
+      case "importo": va=a.importo; vb=b.importo; break;
+      case "avanzamento": va=a.avanzamento; vb=b.avanzamento; break;
+      case "ore": va=a.oreReal; vb=b.oreReal; break;
+      case "incassato": va=a.fIncassato; vb=b.fIncassato; break;
+      case "margineEuro": va=a.margineEuro; vb=b.margineEuro; break;
+      case "marginePct": va=a.marginePct; vb=b.marginePct; break;
+      default: va=a.scadenza; vb=b.scadenza;
+    }
+    if(va<vb) return -sortDir; if(va>vb) return sortDir; return 0;
+  });
+  return arr;
+}
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+function renderAll(){
+  const view = filtered();
+  const all = commesse.map(derive);
+  renderKpis(all);
+  renderChartMargin(view);
+  renderChartHours(view);
+  renderChartRes(view);
+  renderChartDeadlines();
+  renderTable(view);
+  document.getElementById("rowCount").textContent = "· "+view.length+" di "+commesse.length;
+  renderBilling();
+}
+
+function renderKpis(all){
+  const valTot = all.reduce((s,c)=>s+c.importo,0);
+  const margTot = all.reduce((s,c)=>s+c.margineEuro,0);
+  const margPct = valTot>0?margTot/valTot:0;
+  const oreP = all.reduce((s,c)=>s+c.orePreviste,0);
+  const oreR = all.reduce((s,c)=>s+c.oreReal,0);
+  const avanz = oreP>0?oreR/oreP:0;
+  const incassato = all.reduce((s,c)=>s+c.fIncassato,0);
+  const daIncassare = all.reduce((s,c)=>s+c.daIncassare,0);
+  const rischio = all.filter(c=>c.atRisk).length;
+  const mlvl = marginLevel(margPct);
+  const cards=[
+    { label:"Valore contrattualizzato", value:euroK(valTot), foot:`${all.length} commesse` },
+    { label:"Margine totale", value:euroK(margTot), tab:true, foot:`<span class="${margPct>=0?'up':'down'}">${pct(margPct)}</span> margine medio`, bar:{v:Math.max(0,Math.min(1,margPct))*100,c:levelColor(mlvl)} },
+    { label:"Avanzamento ore", value:pct(avanz), tab:true, foot:`${h1(oreR)}h / ${h1(oreP)}h prev.`, bar:{v:Math.min(100,avanz*100),c:avanz>1?levelColor('serious'):levelColor('series-1')} },
+    { label:"Incassato", value:euroK(incassato), tab:true, foot:`su ${euroK(valTot)} contrattualizzati`, bar:{v:valTot?incassato/valTot*100:0,c:levelColor('good')} },
+    { label:"Da incassare", value:euroK(daIncassare), tab:true, foot:`fatture emesse non incassate`, bar:{v:valTot?daIncassare/valTot*100:0,c:levelColor('warning')} },
+    { label:"Commesse a rischio", value:String(rischio), tab:true, foot: rischio>0?`richiedono attenzione`:`nessuna criticità`, bar:{v:all.length?rischio/all.length*100:0,c:levelColor(rischio>0?'critical':'good')} },
+  ];
+  document.getElementById("kpis").innerHTML = cards.map(c=>`
+    <div class="kpi"><div class="label">${c.label}</div><div class="value ${c.tab?'tab':''}">${c.value}</div>
+    <div class="foot">${c.foot}</div>${c.bar?`<div class="bar-mini"><span style="width:${c.bar.v}%;background:${c.bar.c}"></span></div>`:``}</div>`).join("");
+}
+
+function renderChartMargin(data){
+  const el=document.getElementById("chartMargin");
+  if(!data.length){ el.innerHTML='<div class="empty">Nessuna commessa</div>'; return; }
+  const rows=data.slice().sort((a,b)=>a.marginePct-b.marginePct);
+  const rowH=30,gap=8,padL=4,padR=60,top=6, w=el.clientWidth||560, plotW=w-padL-padR;
+  const maxAbs=Math.max(0.3,...rows.map(r=>Math.abs(r.marginePct)));
+  const zeroX=padL+plotW/2, scale=(plotW/2)/maxAbs, h=top+rows.length*(rowH+gap);
+  let svg=`<svg viewBox="0 0 ${w} ${h}" height="${h}"><line class="baseline" x1="${zeroX}" y1="${top-2}" x2="${zeroX}" y2="${h-4}"/>`;
+  rows.forEach((r,i)=>{ const y=top+i*(rowH+gap), col=levelColor(marginLevel(r.marginePct)), bw=Math.abs(r.marginePct)*scale, x=r.marginePct>=0?zeroX:zeroX-bw;
+    const name=r.nome.length>26?r.nome.slice(0,25)+"…":r.nome;
+    svg+=`<rect class="hbar-track" x="${x}" y="${y+9}" width="${Math.max(2,bw)}" height="${rowH-12}" rx="4" fill="${col}" data-tip="${escapeAttr(r.nome)}|Margine ${euro(r.margineEuro)} · ${pct(r.marginePct)}"></rect>`;
+    svg+=`<text x="${padL}" y="${y+7}" class="axis-label" style="font-weight:600;fill:var(--text-secondary)">${escapeHtml(name)}</text>`;
+    svg+=`<text x="${w-padR+8}" y="${y+rowH/2+3}" class="val-label" style="fill:${col};font-weight:650">${pct(r.marginePct)}</text>`; });
+  el.innerHTML=svg+`</svg>`; attachTips(el);
+}
+function renderChartHours(data){
+  const el=document.getElementById("chartHours");
+  if(!data.length){ el.innerHTML='<div class="empty">Nessuna commessa</div>'; return; }
+  const rows=data.slice().sort((a,b)=>b.orePreviste-a.orePreviste).slice(0,8);
+  const rowH=34,gap=10,padL=4,padR=52,top=6,labelH=15, w=el.clientWidth||560, plotW=w-padL-padR;
+  const maxV=Math.max(1,...rows.map(r=>Math.max(r.orePreviste,r.oreReal))), h=top+rows.length*(rowH+gap);
+  const c1=cssVar("--series-1"), c2=cssVar("--series-2");
+  let svg=`<svg viewBox="0 0 ${w} ${h}" height="${h}">`;
+  rows.forEach((r,i)=>{ const y=top+i*(rowH+gap), name=r.nome.length>28?r.nome.slice(0,27)+"…":r.nome, bh=(rowH-labelH-4)/2-1;
+    const wp=plotW*(r.orePreviste/maxV), wr=plotW*(r.oreReal/maxV), over=r.oreReal>r.orePreviste, yb=y+labelH;
+    svg+=`<text x="${padL}" y="${y+11}" class="axis-label" style="font-weight:600;fill:var(--text-secondary)">${escapeHtml(name)}</text>`;
+    svg+=`<rect class="hbar-track" x="${padL}" y="${yb}" width="${Math.max(1,wp)}" height="${bh}" rx="4" fill="${c1}" data-tip="${escapeAttr(r.nome)}|Previste ${h1(r.orePreviste)}h"></rect>`;
+    svg+=`<rect class="hbar-track" x="${padL}" y="${yb+bh+2}" width="${Math.max(1,wr)}" height="${bh}" rx="4" fill="${over?levelColor('serious'):c2}" data-tip="${escapeAttr(r.nome)}|Realizzate ${h1(r.oreReal)}h (${pct(r.avanzamento)})"></rect>`;
+    svg+=`<text x="${Math.max(wp,wr)+padL+6}" y="${yb+bh+3}" class="val-label">${Math.round(r.oreReal)}/${Math.round(r.orePreviste)}h</text>`; });
+  el.innerHTML=svg+`</svg>`; attachTips(el);
+}
+function renderChartRes(data){
+  const el=document.getElementById("chartRes");
+  const map={};
+  data.forEach(c=>{ tsForCommessa(c.id).forEach(t=>{ (map[t.risorsaId]=map[t.risorsaId]||{real:0}).real += (+t.ore||0); }); });
+  const rows=Object.entries(map).map(([id,v])=>({...resById(id),real:v.real})).sort((a,b)=>b.real-a.real);
+  if(!rows.length){ el.innerHTML='<div class="empty">Nessuna ora a timesheet</div>'; return; }
+  const rowH=26,gap=9,padL=4,padR=52,top=6, w=el.clientWidth||560, plotW=w-padL-padR;
+  const maxV=Math.max(1,...rows.map(r=>r.real)), h=top+rows.length*(rowH+gap), c2=cssVar("--series-2");
+  let svg=`<svg viewBox="0 0 ${w} ${h}" height="${h}">`;
+  rows.forEach((r,i)=>{ const y=top+i*(rowH+gap), bw=plotW*(r.real/maxV);
+    svg+=`<text x="${padL}" y="${y+7}" class="axis-label" style="font-weight:600;fill:var(--text-secondary)">${escapeHtml(r.nome)} <tspan style="fill:var(--muted)">· ${escapeHtml(r.ruolo||"")}</tspan></text>`;
+    svg+=`<rect class="hbar-track" x="${padL}" y="${y+11}" width="${Math.max(2,bw)}" height="${rowH-12}" rx="4" fill="${c2}" data-tip="${escapeAttr(r.nome)}|${h1(r.real)}h realizzate"></rect>`;
+    svg+=`<text x="${padL+bw+6}" y="${y+rowH/2+4}" class="val-label">${Math.round(r.real)}h</text>`; });
+  el.innerHTML=svg+`</svg>`; attachTips(el);
+}
+function renderChartDeadlines(){
+  const el=document.getElementById("chartDeadlines");
+  const up=allDeadlines().filter(d=>!d.completata && d.data>=todayISO && daysTo(d.data)<=60).sort((a,b)=>a.data<b.data?-1:1).slice(0,8);
+  if(!up.length){ el.innerHTML='<div class="empty">Nessuna scadenza nei prossimi 60 giorni</div>'; return; }
+  el.innerHTML = up.map(d=>{
+    const gg=daysTo(d.data), col=gg<=7?levelColor("critical"):gg<=21?levelColor("warning"):"var(--muted)";
+    const ti=TIPI[d.tipo]||TIPI.intermedia;
+    const amt = d.tipo==="fatturazione" ? ` · ${euro(d.importo)}` : "";
+    return `<div class="mini-sc">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%">
+        <span class="tipo-badge" style="background:color-mix(in srgb, ${tipoColor(d.tipo)} 15%, transparent);color:${tipoColor(d.tipo)}">${ti.icon} ${ti.label}</span>
+        <span style="margin-left:6px">${escapeHtml(d.descrizione||d.commessaNome)}</span>
+        <div style="font-size:11px;color:var(--muted);margin-top:1px">${escapeHtml(d.commessaNome)}${amt}</div>
+      </span>
+      <span style="color:${col};font-weight:600;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap">${gg===0?"oggi":"tra "+gg+" gg"}<div style="font-size:11px;color:var(--muted)">${fmtDate(d.data)}</div></span>
+    </div>`;
+  }).join("");
+}
+
+function renderTable(data){
+  const tb=document.getElementById("tbody");
+  if(!data.length){ tb.innerHTML=`<tr><td colspan="10"><div class="empty">Nessuna commessa corrisponde ai filtri.</div></td></tr>`; return; }
+  tb.innerHTML=data.map(rowHtml).join("");
+  document.querySelectorAll("#tbl thead th[data-sort]").forEach(th=>{ th.querySelector(".arrow").textContent = th.dataset.sort===sortKey?(sortDir>0?"▲":"▼"):""; });
+}
+function rowHtml(c){
+  const mcol=levelColor(marginLevel(c.marginePct)), avPct=Math.round(c.avanzamento*100), avCol=c.avanzamento>1?levelColor("serious"):levelColor("series-1"), scol=statoColor(c.stato);
+  const ggTxt=c.completata?"—":(c.gg===null?"—":(c.gg<0?`${-c.gg} gg fa`:(c.gg===0?"oggi":`tra ${c.gg} gg`)));
+  const ggCol=(!c.completata&&c.gg!==null&&c.gg<0)?levelColor("critical"):(!c.completata&&c.gg!==null&&c.gg<=14)?levelColor("warning"):"var(--muted)";
+  const flags=c.flags.map(f=>`<span class="flag" style="background:color-mix(in srgb, ${levelColor(f.lvl)} 15%, transparent);color:${levelColor(f.lvl)}">● ${f.t}</span>`).join("");
+  const res=Object.values(c.perRes).sort((a,b)=>b.real-a.real).map(r=>{ const rr=resById(r.risorsaId), cost=r.real*(rr.costo||0), ov=r.real>r.alloc;
+    return `<tr><td>${escapeHtml(rr.nome)}</td><td style="color:var(--muted)">${escapeHtml(rr.ruolo||"")}</td>
+      <td class="num">${h1(r.alloc)}h</td><td class="num" style="color:${ov?levelColor('serious'):'inherit'}">${h1(r.real)}h</td>
+      <td class="num" style="color:var(--muted)">€${rr.costo||0}/h</td><td class="num">${euro(cost)}</td></tr>`; }).join("");
+  const scList=(c.scadenze||[]).slice().sort((a,b)=>a.data<b.data?-1:1).map(s=>{ const ti=TIPI[s.tipo]||TIPI.intermedia;
+    const extra=s.tipo==="fatturazione"?` · ${euro(s.importo)} · ${fattStatus(s).label}`:(s.completata?" · fatta":"");
+    return `<div class="mini-sc"><span><span class="tipo-badge" style="background:color-mix(in srgb, ${tipoColor(s.tipo)} 15%, transparent);color:${tipoColor(s.tipo)}">${ti.icon} ${ti.label}</span> <span style="margin-left:4px">${escapeHtml(s.descrizione||"")}</span></span><span style="color:var(--muted);white-space:nowrap">${fmtDayShort(s.data)}${extra}</span></div>`; }).join("") || `<div class="psub" style="color:var(--muted)">Nessuna scadenza</div>`;
+  return `
+  <tr class="main" data-id="${c.id}">
+    <td><div class="cname">${escapeHtml(c.nome)}</div><div class="cclient">${escapeHtml(c.cliente)}</div></td>
+    <td><span class="pill" style="background:color-mix(in srgb, ${scol} 14%, transparent);color:${scol}"><span class="d" style="background:${scol}"></span>${c.stato}</span></td>
+    <td><span style="color:${ggCol};font-weight:550">${fmtDate(c.scadenza)}</span><div style="font-size:11px;color:var(--muted)">${ggTxt}</div></td>
+    <td class="num">${euro(c.importo)}</td>
+    <td class="num" style="min-width:120px"><div class="barcell"><div class="track"><span style="width:${Math.min(100,avPct)}%;background:${avCol}"></span></div><span class="pct">${avPct}%</span></div></td>
+    <td class="num">${Math.round(c.oreReal)}<span style="color:var(--muted)">/${Math.round(c.orePreviste)}</span></td>
+    <td class="num">${euro(c.fIncassato)}${c.daIncassare>0?`<div style="font-size:11px;color:${levelColor('warning')}">+${euroK(c.daIncassare)} da inc.</div>`:``}</td>
+    <td class="num"><span class="margin-tag" style="color:${mcol}">${euro(c.margineEuro)}</span></td>
+    <td class="num"><span class="margin-tag" style="color:${mcol}">${pct(c.marginePct)}</span></td>
+    <td><div class="row-actions"><button title="Modifica" data-act="edit" data-id="${c.id}">✎</button><button title="Duplica" data-act="dup" data-id="${c.id}">⧉</button><button title="Elimina" data-act="del" data-id="${c.id}">🗑</button></div></td>
+  </tr>
+  <tr class="detail" data-detail="${c.id}" style="display:none"><td colspan="10"><div class="detailinner">
+    <div class="col">
+      <h5>Risorse & consuntivo timesheet</h5>
+      ${flags?`<div class="warn-flags">${flags}</div>`:``}
+      <table class="restable"><thead><tr><th>Risorsa</th><th>Ruolo</th><th class="num">Alloc.</th><th class="num">Real.</th><th class="num">€/h</th><th class="num">Costo</th></tr></thead>
+      <tbody>${res||`<tr><td colspan="6" style="color:var(--muted)">Nessuna risorsa</td></tr>`}</tbody>
+      <tfoot><tr style="font-weight:600;border-top:1px solid var(--border)"><td colspan="3"></td><td class="num" style="padding-top:7px">${h1(c.oreReal)}h</td><td></td><td class="num" style="padding-top:7px">${euro(c.costoReal)}</td></tr></tfoot></table>
+      <div style="margin-top:8px;font-size:12.5px;color:var(--text-secondary)">Ricavi ${euro(c.importo)} − Costo ${euro(c.costoReal)} = <b style="color:${mcol}">${euro(c.margineEuro)} (${pct(c.marginePct)})</b></div>
+    </div>
+    <div class="col">
+      <h5>Scadenze &amp; fatturazione</h5>
+      ${scList}
+      <div style="margin-top:8px;font-size:12.5px;color:var(--text-secondary)">Fatturato ${euro(c.fEmesso)} · Incassato ${euro(c.fIncassato)} · <span style="color:${levelColor('warning')}">Da incassare ${euro(c.daIncassare)}</span></div>
+    </div>
+  </div></td></tr>`;
+}
+
+/* ---------- Tooltip ---------- */
+const tip=document.getElementById("tip");
+function attachTips(container){
+  container.querySelectorAll("[data-tip]").forEach(elm=>{
+    elm.addEventListener("mousemove",e=>{ const p=elm.getAttribute("data-tip").split("|");
+      tip.innerHTML=`<span class="tt">${escapeHtml(p[0])}</span>`+(p[1]?`<br>${escapeHtml(p[1])}`:"");
+      tip.style.opacity="1"; let x=e.clientX+12,y=e.clientY+12; if(x+tip.offsetWidth>window.innerWidth-10)x=e.clientX-tip.offsetWidth-12;
+      tip.style.left=x+"px"; tip.style.top=y+"px"; });
+    elm.addEventListener("mouseleave",()=>{ tip.style.opacity="0"; });
+  });
+}
+
+/* ============================================================
+   TIMESHEET
+   ============================================================ */
+function tsKey(){ return tsResId+"|"+iso(tsWeek); }
+function tsGet(resId, commId, dayISO){ const e=timesheet.find(t=>t.risorsaId===resId&&t.commessaId===commId&&t.data===dayISO); return e?e.ore:0; }
+function tsSet(resId, commId, dayISO, val){
+  val=Math.max(0,Math.round((+val||0)*10)/10);
+  const i=timesheet.findIndex(t=>t.risorsaId===resId&&t.commessaId===commId&&t.data===dayISO);
+  if(val>0){ if(i>=0) timesheet[i].ore=val; else timesheet.push({id:uid("t"),risorsaId:resId,commessaId:commId,data:dayISO,ore:val}); dbTsUpsert(resId,commId,dayISO,val); }
+  else if(i>=0){ timesheet.splice(i,1); dbTsDelete(resId,commId,dayISO); }
+}
+function tsCommesseForRes(resId, weekDays){
+  const ids=new Set();
+  commesse.forEach(c=>{ if((c.allocazioni||[]).some(a=>a.risorsaId===resId)) ids.add(c.id); });
+  timesheet.forEach(t=>{ if(t.risorsaId===resId && weekDays.includes(t.data)) ids.add(t.commessaId); });
+  const extra=tsExtra[tsKey()]; if(extra) extra.forEach(id=>ids.add(id));
+  return [...ids].map(commById).filter(Boolean);
+}
+function renderTimesheet(){
+  // resource selector
+  const sel=document.getElementById("tsRes");
+  sel.innerHTML=anagrafica.map(r=>`<option value="${r.id}" ${r.id===tsResId?"selected":""}>${escapeHtml(r.nome)} · ${escapeHtml(r.ruolo)}</option>`).join("");
+  const days=[...Array(7)].map((_,i)=>iso(addDays(tsWeek,i)));
+  const dow=["lun","mar","mer","gio","ven","sab","dom"];
+  document.getElementById("wkLabel").textContent = fmtDayShort(days[0])+" – "+fmtDate(days[6]);
+  const list=tsCommesseForRes(tsResId, days);
+  const res=resById(tsResId);
+
+  let head=`<tr><th class="cmm">Commessa</th>`+days.map((d,i)=>{ const wd=(i>=5), td=(d===todayISO);
+    return `<th class="${wd?'wknd':''} ${td?'today':''}">${dow[i]}<div class="daynum">${parseISO(d).getDate()}</div></th>`; }).join("")+`<th class="rowtot">Tot</th><th></th></tr>`;
+
+  let body="";
+  if(!list.length){ body=`<tr><td colspan="10"><div class="empty">Nessuna commessa per questa risorsa. Allocala a una commessa o aggiungila qui sotto.</div></td></tr>`; }
+  list.forEach(c=>{
+    let rowTot=0;
+    const cells=days.map((d,i)=>{ const v=tsGet(tsResId,c.id,d); rowTot+=v; const td=(d===todayISO), wd=(i>=5);
+      return `<td class="${td?'today':''} ${wd?'wknd':''}" style="text-align:center"><input class="ts-in" type="number" min="0" step="0.5" value="${v||""}" data-comm="${c.id}" data-day="${d}"></td>`; }).join("");
+    body+=`<tr><td><div class="cmm-name">${escapeHtml(c.nome)}</div><div class="cmm-client">${escapeHtml(c.cliente)}</div></td>${cells}<td class="rowtot">${h1(rowTot)}</td><td><button class="delrow" data-clear="${c.id}" title="Azzera riga">✕</button></td></tr>`;
+  });
+
+  // day totals across ALL commesse for the resource
+  let grand=0;
+  const dayTot=days.map(d=>{ const t=timesheet.filter(x=>x.risorsaId===tsResId&&x.data===d).reduce((s,x)=>s+x.ore,0); grand+=t; return t; });
+  let foot=`<tr><td style="text-align:right;color:var(--muted)">Totale giornaliero</td>`+dayTot.map((t,i)=>{ const cls=t>8?"over":(t>=7.5?"full":""); const td=(days[i]===todayISO);
+    return `<td class="daytot ${cls} ${td?'today':''}">${t?h1(t):"—"}</td>`; }).join("")+`<td class="rowtot">${h1(grand)}</td><td></td></tr>`;
+
+  document.getElementById("tsGrid").innerHTML=`<table class="tsgrid"><thead>${head}</thead><tbody>${body}</tbody><tfoot>${foot}</tfoot></table>`;
+
+  // summary
+  const weekReal=grand;
+  document.getElementById("tsSummary").innerHTML=`Ore registrate da <b>${escapeHtml(res.nome)}</b> nella settimana: <b>${h1(weekReal)}h</b> su ${list.length} commesse · costo interno settimana ${euro(weekReal*(res.costo||0))}`;
+
+  // add-commessa dropdown
+  const shown=new Set(list.map(c=>c.id));
+  const opts=commesse.filter(c=>!shown.has(c.id)).map(c=>`<option value="${c.id}">${escapeHtml(c.nome)} — ${escapeHtml(c.cliente)}</option>`).join("");
+  document.getElementById("tsAddCommessa").innerHTML=`<option value="">— seleziona —</option>`+opts;
+
+  // wire inputs
+  document.querySelectorAll("#tsGrid .ts-in").forEach(inp=>{
+    inp.addEventListener("change",()=>{ tsSet(tsResId,inp.dataset.comm,inp.dataset.day,inp.value); renderTimesheet(); renderAll(); });
+  });
+  document.querySelectorAll("#tsGrid .delrow").forEach(b=>{
+    b.addEventListener("click",()=>{ const cid=b.dataset.clear; days.forEach(d=>tsSet(tsResId,cid,d,0)); renderTimesheet(); renderAll(); });
+  });
+}
+
+/* ============================================================
+   SCADENZE & FATTURAZIONE
+   ============================================================ */
+function renderBilling(){
+  const all=commesse.map(derive);
+  const valTot=all.reduce((s,c)=>s+c.importo,0);
+  const fEmesso=all.reduce((s,c)=>s+c.fEmesso,0);
+  const fIncassato=all.reduce((s,c)=>s+c.fIncassato,0);
+  const daIncassare=fEmesso-fIncassato;
+  const daFatturare=valTot-fEmesso;
+  const scaduto=all.flatMap(c=>c.fatture).filter(f=>f.emessa&&!f.incassata&&f.data<todayISO).reduce((s,f)=>s+(+f.importo||0),0);
+  const cards=[
+    { label:"Contrattualizzato", value:euroK(valTot), foot:"valore totale commesse" },
+    { label:"Fatturato (emesso)", value:euroK(fEmesso), tab:true, foot:`${pct(valTot?fEmesso/valTot:0)} del contrattualizzato`, bar:{v:valTot?fEmesso/valTot*100:0,c:levelColor('series-1')} },
+    { label:"Incassato", value:euroK(fIncassato), tab:true, foot:`${pct(valTot?fIncassato/valTot:0)} del contrattualizzato`, bar:{v:valTot?fIncassato/valTot*100:0,c:levelColor('good')} },
+    { label:"Da incassare", value:euroK(daIncassare), tab:true, foot:`emesso non ancora incassato`, bar:{v:valTot?daIncassare/valTot*100:0,c:levelColor('warning')} },
+    { label:"Scaduto non incassato", value:euroK(scaduto), tab:true, foot: scaduto>0?`solleciti da inviare`:`nessun ritardo`, bar:{v:valTot?scaduto/valTot*100:0,c:levelColor(scaduto>0?'critical':'good')} },
+  ];
+  document.getElementById("billKpis").innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c.label}</div><div class="value ${c.tab?'tab':''}">${c.value}</div><div class="foot">${c.foot}</div>${c.bar?`<div class="bar-mini"><span style="width:${Math.min(100,c.bar.v)}%;background:${c.bar.c}"></span></div>`:``}</div>`).join("");
+
+  // commessa filter options
+  const bsel=document.getElementById("fBillCommessa"); const curBill=bsel.value;
+  bsel.innerHTML=`<option value="">Tutte le commesse</option>`+commesse.map(c=>`<option value="${c.id}" ${c.id===curBill?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+
+  // billing table
+  let rows=[];
+  commesse.forEach(c=>{ (c.scadenze||[]).filter(s=>s.tipo==="fatturazione").forEach(f=>rows.push({c,f})); });
+  if(curBill) rows=rows.filter(r=>r.c.id===curBill);
+  rows.sort((a,b)=>a.f.data<b.f.data?-1:1);
+  const bb=document.getElementById("billBody");
+  bb.innerHTML = rows.length? rows.map(({c,f})=>{ const st=fattStatus(f);
+    return `<tr>
+      <td><div class="cname">${escapeHtml(c.nome)}</div><div class="cclient">${escapeHtml(c.cliente)}</div></td>
+      <td>${escapeHtml(f.descrizione||"")}</td>
+      <td class="num">${euro(f.importo)}</td>
+      <td>${fmtDate(f.data)}</td>
+      <td><span class="fstat" style="background:color-mix(in srgb, ${levelColor(st.lvl)} 15%, transparent);color:${levelColor(st.lvl)}">● ${st.label}</span></td>
+      <td style="text-align:center"><input type="checkbox" class="chk" data-fatt="${f.id}" data-comm="${c.id}" data-k="emessa" ${f.emessa?"checked":""}></td>
+      <td style="text-align:center"><input type="checkbox" class="chk" data-fatt="${f.id}" data-comm="${c.id}" data-k="incassata" ${f.incassata?"checked":""}></td>
+    </tr>`; }).join("") : `<tr><td colspan="7"><div class="empty">Nessuna scadenza di fatturazione.</div></td></tr>`;
+
+  // scadenze (non-billing) table
+  const tf=document.getElementById("fScTipo").value;
+  let sc=allDeadlines().filter(d=>d.tipo!=="fatturazione");
+  if(tf) sc=sc.filter(d=>d.tipo===tf);
+  sc.sort((a,b)=>a.data<b.data?-1:1);
+  const sb=document.getElementById("scBody");
+  sb.innerHTML = sc.length? sc.map(d=>{ const ti=TIPI[d.tipo]||TIPI.intermedia, gg=daysTo(d.data);
+    const when = d.completata?`<span style="color:${levelColor('good')}">completata</span>`:(gg<0?`<span style="color:${levelColor('critical')}">${-gg} gg fa</span>`:(gg===0?"oggi":`tra ${gg} gg`));
+    const canToggle=!d.synthetic;
+    return `<tr>
+      <td><span class="tipo-badge" style="background:color-mix(in srgb, ${tipoColor(d.tipo)} 15%, transparent);color:${tipoColor(d.tipo)}">${ti.icon} ${ti.label}</span></td>
+      <td>${escapeHtml(d.commessaNome)}</td>
+      <td>${escapeHtml(d.descrizione||"")}</td>
+      <td>${fmtDate(d.data)}</td>
+      <td>${when}</td>
+      <td style="text-align:center">${canToggle?`<input type="checkbox" class="chk" data-sc="${d.id}" data-comm="${d.commessaId}" data-k="completata" ${d.completata?"checked":""}>`:`<span style="color:var(--muted)">auto</span>`}</td>
+    </tr>`; }).join("") : `<tr><td colspan="6"><div class="empty">Nessuna scadenza.</div></td></tr>`;
+}
+
+/* toggle fatture / scadenze */
+document.getElementById("billBody").addEventListener("change",e=>{
+  const chk=e.target.closest("input[data-fatt]"); if(!chk) return;
+  const c=commById(chk.dataset.comm); const f=(c.scadenze||[]).find(s=>s.id===chk.dataset.fatt); if(!f) return;
+  const k=chk.dataset.k; f[k]=chk.checked;
+  if(k==="emessa"){ if(chk.checked && !f.dataEmissione) f.dataEmissione=todayISO; if(!chk.checked){ f.incassata=false; f.dataIncasso=""; } }
+  if(k==="incassata"){ if(chk.checked){ f.emessa=true; if(!f.dataEmissione)f.dataEmissione=todayISO; if(!f.dataIncasso)f.dataIncasso=todayISO; } else f.dataIncasso=""; }
+  f.completata=!!f.incassata;
+  dbScUpdate(f.id,{emessa:f.emessa,incassata:f.incassata,data_emissione:f.dataEmissione||null,data_incasso:f.dataIncasso||null,completata:f.completata});
+  renderBilling(); renderAll();
+});
+document.getElementById("scBody").addEventListener("change",e=>{
+  const chk=e.target.closest("input[data-sc]"); if(!chk) return;
+  const c=commById(chk.dataset.comm); const s=(c.scadenze||[]).find(x=>x.id===chk.dataset.sc); if(!s) return;
+  s.completata=chk.checked; dbScUpdate(s.id,{completata:s.completata}); renderBilling(); renderChartDeadlines();
+});
+document.getElementById("fBillCommessa").addEventListener("change",renderBilling);
+document.getElementById("fScTipo").addEventListener("change",renderBilling);
+
+/* ============================================================
+   TABS
+   ============================================================ */
+document.querySelectorAll(".tab").forEach(t=>{
+  t.addEventListener("click",()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+    document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
+    t.classList.add("active");
+    document.getElementById("view-"+t.dataset.view).classList.add("active");
+    if(t.dataset.view==="timesheet") renderTimesheet();
+    if(t.dataset.view==="billing") renderBilling();
+  });
+});
+
+/* ============================================================
+   FILTRI, ORDINAMENTO, AZIONI TABELLA
+   ============================================================ */
+document.getElementById("search").addEventListener("input",e=>{ state.search=e.target.value; renderAll(); });
+document.getElementById("fStato").addEventListener("change",e=>{ state.stato=e.target.value; renderAll(); });
+document.getElementById("fCliente").addEventListener("change",e=>{ state.cliente=e.target.value; renderAll(); });
+document.getElementById("fRisorsa").addEventListener("change",e=>{ state.risorsa=e.target.value; renderAll(); });
+document.getElementById("fRischio").addEventListener("change",e=>{ state.vista=e.target.value; renderAll(); });
+document.querySelectorAll("#tbl thead th[data-sort]").forEach(th=>{
+  th.addEventListener("click",()=>{ const k=th.dataset.sort; if(sortKey===k) sortDir*=-1; else { sortKey=k; sortDir=(k==="nome"||k==="stato")?1:-1; } renderAll(); });
+});
+document.getElementById("tbody").addEventListener("click",e=>{
+  const btn=e.target.closest("button[data-act]");
+  if(btn){ e.stopPropagation(); const id=btn.dataset.id;
+    if(btn.dataset.act==="edit") openModal(id);
+    else if(btn.dataset.act==="del"){ const c=commById(id); if(window.confirm(`Eliminare la commessa "${c?c.nome:''}"?`)) delCommessa(id); }
+    else if(btn.dataset.act==="dup") duplicate(id);
+    return; }
+  const row=e.target.closest("tr.main");
+  if(row){ const det=document.querySelector(`tr.detail[data-detail="${row.dataset.id}"]`); if(det) det.style.display=det.style.display==="none"?"table-row":"none"; }
+});
+async function duplicate(id){ const c=commById(id); if(!c) return;
+  if(!sbc){ const copy=JSON.parse(JSON.stringify(c)); copy.id=uid("c"); copy.nome=c.nome+" (copia)"; (copy.scadenze||[]).forEach(s=>s.id=uid("s")); commesse.push(copy); refreshFilterOptions(); renderAll(); return; }
+  await dbInsertCommessa({...c, nome:c.nome+" (copia)"}); await dbReloadRender();
+}
+async function delCommessa(id){
+  if(!sbc){ commesse=commesse.filter(x=>x.id!==id); timesheet=timesheet.filter(t=>t.commessaId!==id); refreshFilterOptions(); renderAll(); return; }
+  const {error}=await sbc.from('commesse').delete().eq('id',id); if(error){ alert("Errore eliminazione: "+error.message); return; } await dbReloadRender();
+}
+
+/* theme */
+document.getElementById("themeBtn").addEventListener("click",()=>{ const cur=document.documentElement.getAttribute("data-theme"); document.documentElement.setAttribute("data-theme",cur==="dark"?"light":"dark"); renderAll(); if(document.getElementById("view-timesheet").classList.contains("active")) renderTimesheet(); });
+(function(){ const dark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches; document.documentElement.setAttribute("data-theme",dark?"dark":"light"); })();
+
+/* ---------- Import / Export ---------- */
+document.getElementById("exportBtn").addEventListener("click",()=>{
+  const payload={ versione:2, esportato:todayISO, anagrafica, commesse, timesheet };
+  downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}),"commesse.json");
+});
+document.getElementById("importBtn").addEventListener("click",()=>document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change",e=>{
+  const file=e.target.files[0]; if(!file) return; const rd=new FileReader();
+  rd.onload=async ()=>{ try{
+    const p=JSON.parse(rd.result);
+    if(Array.isArray(p)){ migrateOld(p); }
+    else { anagrafica=(p.anagrafica||[]).map(r=>({id:r.id||uid("r"),nome:r.nome,ruolo:r.ruolo||'',costo:+r.costo||0,email:r.email||''})); commesse=(p.commesse||[]).map(normCommessa); timesheet=(p.timesheet||[]).map(t=>({id:t.id||uid("t"),risorsaId:t.risorsaId,commessaId:t.commessaId,data:t.data,ore:+t.ore||0})); }
+    if(sbc){ if(!window.confirm("Importare questi dati nel database condiviso? I dati attuali verranno sostituiti per tutto il team.")) return;
+      await pushAllToDB(anagrafica,commesse,timesheet); await dbReloadRender(); toggleSeedBanner(false); alert("Import completato."); }
+    else { tsResId=anagrafica[0]?anagrafica[0].id:null; refreshFilterOptions(); renderAll(); }
+  }catch(err){ alert("Impossibile leggere il file: "+err.message); } };
+  rd.readAsText(file); e.target.value="";
+});
+function normCommessa(c){ return { id:c.id||uid("c"), nome:c.nome||"Senza nome", cliente:c.cliente||"", stato:c.stato||"In corso", inizio:c.inizio||"", scadenza:c.scadenza||"", importo:+c.importo||0, orePreviste:+c.orePreviste||0, allocazioni:(c.allocazioni||[]).map(a=>({risorsaId:a.risorsaId,alloc:+a.alloc||0})), scadenze:(c.scadenze||[]).map(s=>({id:s.id||uid("s"),tipo:s.tipo||"intermedia",data:s.data||"",descrizione:s.descrizione||"",completata:!!s.completata,importo:+s.importo||0,emessa:!!s.emessa,dataEmissione:s.dataEmissione||"",incassata:!!s.incassata,dataIncasso:s.dataIncasso||""})) }; }
+function migrateOld(arr){ // vecchio formato: array di commesse con risorse{nome,ruolo,alloc,real,costo}
+  const anag={}; const ts=[]; let ci=0;
+  const newComm=arr.map(c=>{ const alloc=(c.risorse||[]).map(r=>{ const key=r.nome+"|"+(r.ruolo||""); if(!anag[key]) anag[key]={id:"r"+(Object.keys(anag).length+1),nome:r.nome,ruolo:r.ruolo||"",costo:+r.costo||0}; const rid=anag[key].id;
+      const days=weekdaysBetween(c.inizio||todayISO, minISO(c.scadenza||todayISO,todayISO)); const per=(+r.real||0)/(days.length||1); let rem=+r.real||0;
+      days.forEach((d,i)=>{ let h=i===days.length-1?rem:Math.round(per*2)/2; rem=Math.round((rem-h)*10)/10; if(h>0) ts.push({id:"t"+(ci++),risorsaId:rid,commessaId:c.id||("c"+ci),data:d,ore:Math.round(h*10)/10}); });
+      return {risorsaId:rid,alloc:+r.alloc||0}; });
+    return normCommessa({...c,allocazioni:alloc,scadenze:c.scadenze||[]}); });
+  anagrafica=Object.values(anag); commesse=newComm; timesheet=ts;
+}
+function downloadBlob(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000); }
+document.getElementById("tsCsv").addEventListener("click",()=>{
+  const head=["Data","Risorsa","Ruolo","Commessa","Cliente","Ore","CostoOrario","Costo"];
+  const lines=[head.join(";")];
+  timesheet.slice().sort((a,b)=>a.data<b.data?-1:1).forEach(t=>{ const r=resById(t.risorsaId), c=commById(t.commessaId)||{nome:"?",cliente:""};
+    lines.push([t.data,csv(r.nome),csv(r.ruolo),csv(c.nome),csv(c.cliente),h1(t.ore),r.costo||0,Math.round(t.ore*(r.costo||0))].join(";")); });
+  downloadBlob(new Blob(["﻿"+lines.join("\n")],{type:"text/csv;charset=utf-8"}),"timesheet.csv");
+});
+function csv(s){ s=String(s||""); return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+
+/* ---------- filtri options ---------- */
+function refreshFilterOptions(){
+  fill("fStato",[...new Set(commesse.map(c=>c.stato))],state.stato);
+  fill("fCliente",[...new Set(commesse.map(c=>c.cliente))].sort(),state.cliente);
+  const rs=document.getElementById("fRisorsa"); const cur=state.risorsa;
+  rs.innerHTML=`<option value="">Tutte</option>`+anagrafica.map(r=>`<option value="${r.id}" ${r.id===cur?"selected":""}>${escapeHtml(r.nome)}</option>`).join("");
+}
+function fill(id,arr,sel){ const s=document.getElementById(id); s.innerHTML=`<option value="">${id==="fStato"?"Tutti":"Tutti"}</option>`+arr.map(v=>`<option ${v===sel?"selected":""}>${escapeHtml(v)}</option>`).join(""); }
+
+/* ============================================================
+   MODAL COMMESSA
+   ============================================================ */
+const overlay=document.getElementById("overlay");
+document.getElementById("addBtn").addEventListener("click",()=>openModal(null));
+document.getElementById("closeModal").addEventListener("click",closeModal);
+document.getElementById("cancelBtn").addEventListener("click",closeModal);
+overlay.addEventListener("click",e=>{ if(e.target===overlay) closeModal(); });
+document.getElementById("addAllocBtn").addEventListener("click",()=>{ addAllocRow(); recalcLive(); });
+document.getElementById("addScBtn").addEventListener("click",()=>addScRow());
+document.getElementById("saveBtn").addEventListener("click",saveModal);
+["mImporto","mOrePreviste"].forEach(id=>document.getElementById(id).addEventListener("input",recalcLive));
+
+function openModal(id){
+  editId=id; const c=id?commById(id):null;
+  document.getElementById("modalTitle").textContent=c?"Modifica commessa":"Nuova commessa";
+  document.getElementById("mNome").value=c?c.nome:"";
+  document.getElementById("mCliente").value=c?c.cliente:"";
+  document.getElementById("mStato").value=c?c.stato:"In corso";
+  document.getElementById("mImporto").value=c?c.importo:"";
+  document.getElementById("mInizio").value=c?c.inizio:"";
+  document.getElementById("mScadenza").value=c?c.scadenza:"";
+  document.getElementById("mOrePreviste").value=(c&&c.orePreviste)?c.orePreviste:"";
+  const ar=document.getElementById("allocRows"); ar.innerHTML="";
+  const alist=(c&&c.allocazioni&&c.allocazioni.length)?c.allocazioni:[{risorsaId:anagrafica[0]?.id,alloc:""}];
+  alist.forEach(a=>addAllocRow(a));
+  const sr=document.getElementById("scRows"); sr.innerHTML="";
+  (c&&c.scadenze?c.scadenze:[]).forEach(s=>addScRow(s));
+  recalcLive(); overlay.classList.add("open");
+}
+function closeModal(){ overlay.classList.remove("open"); editId=null; }
+
+function addAllocRow(a){ a=a||{};
+  const div=document.createElement("div"); div.className="alloc-row";
+  div.innerHTML=`<div class="field"><select class="a-res">${anagrafica.map(r=>`<option value="${r.id}" ${r.id===a.risorsaId?"selected":""}>${escapeHtml(r.nome)} · ${escapeHtml(r.ruolo)} (€${r.costo}/h)</option>`).join("")}</select></div>
+    <div class="field"><input type="number" class="a-alloc" min="0" step="1" placeholder="Ore budget" value="${a.alloc??""}"></div>
+    <button class="del-x" type="button" title="Rimuovi">✕</button>`;
+  div.querySelector(".del-x").addEventListener("click",()=>{ div.remove(); recalcLive(); });
+  div.querySelectorAll("select,input").forEach(x=>x.addEventListener("input",recalcLive));
+  document.getElementById("allocRows").appendChild(div);
+}
+function readAlloc(){ return [...document.querySelectorAll("#allocRows .alloc-row")].map(r=>({ risorsaId:r.querySelector(".a-res").value, alloc:+r.querySelector(".a-alloc").value||0 })).filter(a=>a.risorsaId&&(a.alloc||a.alloc===0)); }
+
+function addScRow(s){ s=s||{tipo:"intermedia"};
+  const div=document.createElement("div"); div.className="sc-row"+(s.tipo==="fatturazione"?" is-fatt":"");
+  div.innerHTML=`
+    <div class="sc-top">
+      <div class="field" style="min-width:170px"><label>Tipo</label><select class="s-tipo">
+        <option value="intermedia" ${s.tipo==="intermedia"?"selected":""}>Milestone (intermedia)</option>
+        <option value="fatturazione" ${s.tipo==="fatturazione"?"selected":""}>Fatturazione</option>
+        <option value="visita" ${s.tipo==="visita"?"selected":""}>Visita in loco</option>
+      </select></div>
+      <button class="del-x" type="button" title="Rimuovi">✕</button>
+    </div>
+    <div class="field"><label>Data</label><input type="date" class="s-data" value="${s.data||""}"></div>
+    <div class="field"><label>Descrizione</label><input type="text" class="s-desc" placeholder="es. SAL 30% / Visita sede" value="${escapeHtml(s.descrizione||"")}"></div>
+    <div class="sc-fatt">
+      <div class="field"><label>Importo tranche (€)</label><input type="number" class="s-importo" min="0" step="100" value="${s.importo??""}"></div>
+      <div class="field"><label>&nbsp;</label>
+        <div class="flagline"><label class="flagline" style="text-transform:none;font-size:12px;color:var(--text-secondary)"><input type="checkbox" class="s-emessa" ${s.emessa?"checked":""}> Emessa</label>
+        <label class="flagline" style="text-transform:none;font-size:12px;color:var(--text-secondary)"><input type="checkbox" class="s-incassata" ${s.incassata?"checked":""}> Incassata</label></div>
+      </div>
+    </div>
+    <div class="field s-compl-wrap" style="${s.tipo==="fatturazione"?"display:none":""}"><label class="flagline" style="text-transform:none;font-size:12px;color:var(--text-secondary)"><input type="checkbox" class="s-compl" ${s.completata?"checked":""}> Completata</label></div>`;
+  const tipoSel=div.querySelector(".s-tipo");
+  tipoSel.addEventListener("change",()=>{ const isF=tipoSel.value==="fatturazione"; div.classList.toggle("is-fatt",isF); div.querySelector(".s-compl-wrap").style.display=isF?"none":""; });
+  div.querySelector(".del-x").addEventListener("click",()=>div.remove());
+  document.getElementById("scRows").appendChild(div);
+}
+function readSc(){
+  return [...document.querySelectorAll("#scRows .sc-row")].map(r=>{
+    const tipo=r.querySelector(".s-tipo").value;
+    const base={ id:uid("s"), tipo, data:r.querySelector(".s-data").value, descrizione:r.querySelector(".s-desc").value.trim() };
+    if(tipo==="fatturazione"){ const em=r.querySelector(".s-emessa").checked, inc=r.querySelector(".s-incassata").checked;
+      return { ...base, importo:+r.querySelector(".s-importo").value||0, emessa:em||inc, dataEmissione:(em||inc)?todayISO:"", incassata:inc, dataIncasso:inc?todayISO:"", completata:inc }; }
+    return { ...base, completata:r.querySelector(".s-compl").checked };
+  }).filter(s=>s.data||s.descrizione||s.importo);
+}
+function recalcLive(){
+  const importo=+document.getElementById("mImporto").value||0;
+  const alloc=readAlloc();
+  const oreAlloc=alloc.reduce((s,a)=>s+a.alloc,0);
+  const costoBudget=alloc.reduce((s,a)=>s+a.alloc*(resById(a.risorsaId).costo||0),0);
+  const orePrev=(+document.getElementById("mOrePreviste").value||0)>0?+document.getElementById("mOrePreviste").value:oreAlloc;
+  // consuntivo dal timesheet se stiamo modificando
+  let costoReal=0, oreReal=0;
+  if(editId){ const ent=tsForCommessa(editId); oreReal=ent.reduce((s,t)=>s+t.ore,0); costoReal=ent.reduce((s,t)=>s+t.ore*(resById(t.risorsaId).costo||0),0); }
+  const margB=importo-costoBudget, margBP=importo>0?margB/importo:0;
+  const colB=levelColor(marginLevel(margBP));
+  let txt=`Margine a budget: <b style="color:${colB}">${euro(margB)} (${pct(margBP)})</b> · Costo budget ${euro(costoBudget)} · Ore prev. ${h1(orePrev)}`;
+  if(editId){ const margR=importo-costoReal, margRP=importo>0?margR/importo:0; txt+=` <span style="color:var(--muted)">· Consuntivo timesheet: ${euro(margR)} (${pct(margRP)}), ${h1(oreReal)}h</span>`; }
+  document.getElementById("liveMargin").innerHTML=txt;
+}
+async function saveModal(){
+  const nome=document.getElementById("mNome").value.trim();
+  if(!nome){ alert("Inserisci il nome della commessa."); return; }
+  const obj={ nome,
+    cliente:document.getElementById("mCliente").value.trim(),
+    stato:document.getElementById("mStato").value,
+    inizio:document.getElementById("mInizio").value,
+    scadenza:document.getElementById("mScadenza").value,
+    importo:+document.getElementById("mImporto").value||0,
+    orePreviste:+document.getElementById("mOrePreviste").value||0,
+    allocazioni:readAlloc(), scadenze:readSc() };
+  if(!sbc){ if(editId){ const i=commesse.findIndex(c=>c.id===editId); commesse[i]={...commesse[i],...obj,id:editId}; } else commesse.push({...obj,id:uid("c")}); closeModal(); refreshFilterOptions(); renderAll(); return; }
+  if(editId){
+    const {error}=await sbc.from('commesse').update({nome:obj.nome,cliente:obj.cliente,stato:obj.stato,inizio:obj.inizio||null,scadenza:obj.scadenza||null,importo:obj.importo,ore_previste:obj.orePreviste}).eq('id',editId);
+    if(error){ alert("Errore salvataggio: "+error.message); return; }
+    await sbc.from('allocazioni').delete().eq('commessa_id',editId);
+    await sbc.from('scadenze').delete().eq('commessa_id',editId);
+    const allocs=obj.allocazioni.filter(a=>a.risorsaId).map(a=>({commessa_id:editId,risorsa_id:a.risorsaId,alloc:a.alloc||0}));
+    if(allocs.length) await sbc.from('allocazioni').insert(allocs);
+    const scs=obj.scadenze.map(s=>scToRow(editId,s));
+    if(scs.length) await sbc.from('scadenze').insert(scs);
+  } else {
+    await dbInsertCommessa(obj);
+  }
+  closeModal(); await dbReloadRender();
+}
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(overlay.classList.contains("open")) closeModal(); if(resOverlay.classList.contains("open")) closeRes(); } });
+
+/* ============================================================
+   MODAL ANAGRAFICA RISORSE
+   ============================================================ */
+const resOverlay=document.getElementById("resOverlay");
+document.getElementById("manageRes").addEventListener("click",openRes);
+document.getElementById("closeRes").addEventListener("click",closeRes);
+resOverlay.addEventListener("click",e=>{ if(e.target===resOverlay) closeRes(); });
+document.getElementById("addAnagBtn").addEventListener("click",()=>addAnagRow());
+document.getElementById("saveRes").addEventListener("click",saveRes);
+function openRes(){ const box=document.getElementById("anagRows"); box.innerHTML=""; anagrafica.forEach(r=>addAnagRow(r)); resOverlay.classList.add("open"); }
+function closeRes(){ resOverlay.classList.remove("open"); }
+function addAnagRow(r){ r=r||{};
+  const div=document.createElement("div"); div.className="anag-row"; div.dataset.id=r.id||"";
+  div.innerHTML=`<div class="field"><input type="text" class="an-nome" placeholder="Nome" value="${escapeHtml(r.nome||"")}"></div>
+    <div class="field"><input type="text" class="an-ruolo" placeholder="Ruolo" value="${escapeHtml(r.ruolo||"")}"></div>
+    <div class="field"><input type="number" class="an-costo" min="0" step="1" placeholder="€/h" value="${r.costo??""}"></div>
+    <button class="del-x" type="button" title="Rimuovi">✕</button>`;
+  div.querySelector(".del-x").addEventListener("click",()=>div.remove());
+  document.getElementById("anagRows").appendChild(div);
+}
+async function saveRes(){
+  const rows=[...document.querySelectorAll("#anagRows .anag-row")];
+  const next=rows.map(r=>({ id:r.dataset.id||"", nome:r.querySelector(".an-nome").value.trim(), ruolo:r.querySelector(".an-ruolo").value.trim(), costo:+r.querySelector(".an-costo").value||0 })).filter(r=>r.nome);
+  if(!next.length){ alert("Serve almeno una risorsa."); return; }
+  if(!sbc){ anagrafica=next.map(r=>({...r,id:r.id||uid("r")})); if(!anagrafica.find(r=>r.id===tsResId)) tsResId=anagrafica[0].id; closeRes(); refreshFilterOptions(); renderAll(); renderTimesheet(); return; }
+  const keepIds=new Set(next.filter(r=>r.id).map(r=>r.id));
+  const toDel=anagrafica.filter(r=>!keepIds.has(r.id)).map(r=>r.id);
+  if(toDel.length) await sbc.from('risorse').delete().in('id',toDel);
+  for(const r of next){
+    if(r.id) await sbc.from('risorse').update({nome:r.nome,ruolo:r.ruolo,costo:r.costo}).eq('id',r.id);
+    else await sbc.from('risorse').insert({nome:r.nome,ruolo:r.ruolo,costo:r.costo});
+  }
+  closeRes(); await dbReloadRender();
+  if(!anagrafica.find(r=>r.id===tsResId)) tsResId=anagrafica[0]?anagrafica[0].id:null;
+  renderTimesheet();
+}
+
+/* timesheet controls */
+document.getElementById("tsRes").addEventListener("change",e=>{ tsResId=e.target.value; renderTimesheet(); });
+document.getElementById("wkPrev").addEventListener("click",()=>{ tsWeek=addDays(tsWeek,-7); renderTimesheet(); });
+document.getElementById("wkNext").addEventListener("click",()=>{ tsWeek=addDays(tsWeek,7); renderTimesheet(); });
+document.getElementById("wkToday").addEventListener("click",()=>{ tsWeek=mondayOf(TODAY); renderTimesheet(); });
+document.getElementById("tsAddCommessa").addEventListener("change",e=>{ const id=e.target.value; if(!id) return; const k=tsKey(); (tsExtra[k]=tsExtra[k]||new Set()).add(id); renderTimesheet(); });
+
+/* resize */
+let rzT; window.addEventListener("resize",()=>{ clearTimeout(rzT); rzT=setTimeout(()=>{ renderAll(); if(document.getElementById("view-timesheet").classList.contains("active")) renderTimesheet(); },150); });
+
+/* ============================================================
+   CLOUD — Supabase: caricamento, persistenza, auth, realtime
+   ============================================================ */
+async function loadFromDB(){
+  if(!sbc) return;
+  const [R,C,A,T,S] = await Promise.all([
+    sbc.from('risorse').select('*').order('nome'),
+    sbc.from('commesse').select('*'),
+    sbc.from('allocazioni').select('*'),
+    sbc.from('timesheet').select('*'),
+    sbc.from('scadenze').select('*'),
+  ]);
+  const bad=[R,C,A,T,S].find(x=>x.error);
+  if(bad){ alert("Errore caricamento dati: "+bad.error.message); return; }
+  anagrafica=(R.data||[]).map(r=>({id:r.id,nome:r.nome,ruolo:r.ruolo||'',costo:+r.costo||0,email:r.email||''}));
+  timesheet=(T.data||[]).map(t=>({id:t.id,risorsaId:t.risorsa_id,commessaId:t.commessa_id,data:t.data,ore:+t.ore||0}));
+  const allocBy={},scBy={};
+  (A.data||[]).forEach(a=>{(allocBy[a.commessa_id]=allocBy[a.commessa_id]||[]).push({id:a.id,risorsaId:a.risorsa_id,alloc:+a.alloc||0});});
+  (S.data||[]).forEach(s=>{(scBy[s.commessa_id]=scBy[s.commessa_id]||[]).push({id:s.id,tipo:s.tipo,data:s.data||'',descrizione:s.descrizione||'',completata:!!s.completata,importo:+s.importo||0,emessa:!!s.emessa,dataEmissione:s.data_emissione||'',incassata:!!s.incassata,dataIncasso:s.data_incasso||''});});
+  commesse=(C.data||[]).map(c=>({id:c.id,nome:c.nome,cliente:c.cliente||'',stato:c.stato||'In corso',inizio:c.inizio||'',scadenza:c.scadenza||'',importo:+c.importo||0,orePreviste:+c.ore_previste||0,allocazioni:allocBy[c.id]||[],scadenze:scBy[c.id]||[]}));
+}
+async function dbReloadRender(){ await loadFromDB(); refreshFilterOptions(); renderAll();
+  const tv=document.getElementById("view-timesheet"); if(tv&&tv.classList.contains("active")) renderTimesheet();
+  const bv=document.getElementById("view-billing"); if(bv&&bv.classList.contains("active")) renderBilling(); }
+async function dbTsUpsert(resId,commId,day,ore){ if(!sbc)return; const {error}=await sbc.from('timesheet').upsert({risorsa_id:resId,commessa_id:commId,data:day,ore},{onConflict:'risorsa_id,commessa_id,data'}); if(error) console.warn("timesheet:",error.message); }
+async function dbTsDelete(resId,commId,day){ if(!sbc)return; await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day}); }
+async function dbScUpdate(id,patch){ if(!sbc)return; const {error}=await sbc.from('scadenze').update(patch).eq('id',id); if(error) console.warn("scadenza:",error.message); }
+function scToRow(cid,s){ return {commessa_id:cid,tipo:s.tipo,data:s.data||null,descrizione:s.descrizione||'',completata:!!s.completata,importo:s.importo||0,emessa:!!s.emessa,data_emissione:s.dataEmissione||null,incassata:!!s.incassata,data_incasso:s.dataIncasso||null}; }
+async function dbInsertCommessa(c){
+  const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single();
+  if(error){ alert("Errore salvataggio: "+error.message); return null; }
+  const cid=data.id;
+  const allocs=(c.allocazioni||[]).filter(a=>a.risorsaId).map(a=>({commessa_id:cid,risorsa_id:a.risorsaId,alloc:a.alloc||0}));
+  if(allocs.length) await sbc.from('allocazioni').insert(allocs);
+  const scs=(c.scadenze||[]).map(s=>scToRow(cid,s));
+  if(scs.length) await sbc.from('scadenze').insert(scs);
+  return cid;
+}
+async function wipeDB(){ const z="00000000-0000-0000-0000-000000000000";
+  await sbc.from('timesheet').delete().neq('id',z);
+  await sbc.from('scadenze').delete().neq('id',z);
+  await sbc.from('allocazioni').delete().neq('id',z);
+  await sbc.from('commesse').delete().neq('id',z);
+  await sbc.from('risorse').delete().neq('id',z);
+}
+async function pushAllToDB(anag,comm,ts){
+  await wipeDB();
+  const rMap={};
+  for(const r of anag){ const {data,error}=await sbc.from('risorse').insert({nome:r.nome,ruolo:r.ruolo||'',costo:r.costo||0,email:r.email||null}).select('id').single(); if(error){alert(error.message);return;} rMap[r.id]=data.id; }
+  const cMap={};
+  for(const c of comm){ const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single(); if(error){alert(error.message);return;} cMap[c.id]=data.id;
+    const allocs=(c.allocazioni||[]).map(a=>({commessa_id:data.id,risorsa_id:rMap[a.risorsaId]||null,alloc:a.alloc||0}));
+    if(allocs.length) await sbc.from('allocazioni').insert(allocs);
+    const scs=(c.scadenze||[]).map(s=>scToRow(data.id,s));
+    if(scs.length) await sbc.from('scadenze').insert(scs);
+  }
+  const rows=ts.map(t=>({commessa_id:cMap[t.commessaId],risorsa_id:rMap[t.risorsaId],data:t.data,ore:t.ore})).filter(x=>x.commessa_id&&x.risorsa_id);
+  for(let i=0;i<rows.length;i+=400) await sbc.from('timesheet').insert(rows.slice(i,i+400));
+}
+async function pushSeed(){
+  anagrafica=seedAnagrafica(); commesse=seedCommesse(); timesheet=genTimesheet();
+  await pushAllToDB(anagrafica,commesse,timesheet);
+  await dbReloadRender(); toggleSeedBanner(false);
+  tsResId=anagrafica[0]?anagrafica[0].id:tsResId; renderTimesheet();
+}
+function toggleSeedBanner(show){ const b=document.getElementById("seedBanner"); if(b) b.style.display=show?"block":"none"; }
+
+/* Realtime */
+function subscribeRealtime(){ if(!sbc||subscribed) return; subscribed=true;
+  sbc.channel('rt-commesse').on('postgres_changes',{event:'*',schema:'public'},()=>scheduleReload()).subscribe(); }
+function scheduleReload(){ clearTimeout(realtimeTimer); realtimeTimer=setTimeout(()=>{
+  if(overlay.classList.contains('open')||resOverlay.classList.contains('open')) return;
+  const ae=document.activeElement; if(ae&&ae.classList&&ae.classList.contains('ts-in')) return;
+  dbReloadRender();
+},700); }
+
+/* Auth */
+async function boot(){
+  refreshFilterOptions();
+  if(!CONFIGURED || !sbc){ document.getElementById("cfgGate").classList.add("open"); return; }
+  const {data:{session}}=await sbc.auth.getSession();
+  sbc.auth.onAuthStateChange((_e,sess)=>handleAuth(sess));
+  await handleAuth(session);
+}
+async function handleAuth(session){
+  currentUser=session?session.user:null;
+  if(currentUser){ document.getElementById("authGate").classList.remove("open"); await afterLogin(); }
+  else { document.getElementById("authGate").classList.add("open"); document.getElementById("logoutBtn").style.display="none"; document.getElementById("userChip").textContent=""; }
+}
+let _loggedInOnce=false;
+async function afterLogin(){
+  document.getElementById("userChip").textContent=currentUser.email;
+  document.getElementById("logoutBtn").style.display="";
+  await loadFromDB();
+  toggleSeedBanner(anagrafica.length===0 && commesse.length===0);
+  const mine=anagrafica.find(r=>r.email&&r.email.toLowerCase()===currentUser.email.toLowerCase());
+  tsResId=mine?mine.id:(anagrafica[0]?anagrafica[0].id:null);
+  refreshFilterOptions(); renderAll();
+  if(!_loggedInOnce){ subscribeRealtime(); _loggedInOnce=true; }
+}
+function authMsg(t,cls){ const el=document.getElementById("authMsg"); el.textContent=t; el.style.color = cls==="err"?levelColor("critical"):cls==="warn"?levelColor("warning"):cls==="ok"?levelColor("good"):"var(--muted)"; }
+async function doLogin(){
+  const email=document.getElementById("authEmail").value.trim(), pwd=document.getElementById("authPwd").value;
+  if(!email||!pwd){ authMsg("Inserisci email e password.","warn"); return; }
+  authMsg("Accesso in corso…","");
+  const {error}=await sbc.auth.signInWithPassword({email,password:pwd});
+  if(error) authMsg(error.message,"err");
+}
+async function doSignup(){
+  const email=document.getElementById("authEmail").value.trim(), pwd=document.getElementById("authPwd").value;
+  if(!email||pwd.length<6){ authMsg("Email valida e password di almeno 6 caratteri.","warn"); return; }
+  const {data,error}=await sbc.auth.signUp({email,password:pwd});
+  if(error){ authMsg(error.message,"err"); return; }
+  if(data.session) authMsg("Registrazione completata.","ok");
+  else authMsg("Registrazione ricevuta. Se richiesto, conferma l'email dal messaggio ricevuto, poi accedi.","ok");
+}
+document.getElementById("loginBtn").addEventListener("click",doLogin);
+document.getElementById("signupBtn").addEventListener("click",doSignup);
+document.getElementById("authPwd").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
+document.getElementById("logoutBtn").addEventListener("click",async ()=>{ if(sbc) await sbc.auth.signOut(); });
+{ const sb=document.getElementById("seedBtn"); if(sb) sb.addEventListener("click",()=>{ if(window.confirm("Caricare le commesse di esempio nel database condiviso?")) pushSeed(); }); }
+
+/* INIT */
+boot();
+</script>
+</body>
+</html>
