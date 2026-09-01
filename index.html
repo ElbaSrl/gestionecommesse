@@ -228,6 +228,7 @@
       <div class="fgroup grow"><label for="search">Cerca</label><input type="text" id="search" placeholder="Commessa o cliente…"></div>
       <div class="fgroup"><label for="fStato">Stato</label><select id="fStato"><option value="">Tutti</option></select></div>
       <div class="fgroup"><label for="fCliente">Cliente</label><select id="fCliente"><option value="">Tutti</option></select></div>
+      <div class="fgroup"><label for="fSogg">Contraente</label><select id="fSogg"><option value="">Tutti</option></select></div>
       <div class="fgroup"><label for="fRisorsa">Risorsa</label><select id="fRisorsa"><option value="">Tutte</option></select></div>
       <div class="fgroup"><label for="fRischio">Vista</label><select id="fRischio">
         <option value="">Tutte le commesse</option><option value="risk">Solo a rischio</option><option value="open">Solo in corso</option>
@@ -365,6 +366,7 @@
       <div class="formgrid">
         <div class="field"><label>Nome commessa</label><input type="text" id="mNome" placeholder="es. Piano industriale Alfa"></div>
         <div class="field"><label>Cliente</label><input type="text" id="mCliente" list="clientiList" placeholder="es. Alfa S.p.A."><datalist id="clientiList"></datalist></div>
+        <div class="field"><label>Soggetto contraente <button type="button" id="mSoggManage" style="border:none;background:transparent;color:var(--series-1);cursor:pointer;font-size:10px;padding:0 0 0 6px">✎ gestisci</button></label><select id="mSogg"></select></div>
         <div class="field"><label>Stato</label><select id="mStato"><option>In corso</option><option>In pausa</option><option>A rischio</option><option>Completata</option><option>Non avviata</option></select></div>
         <div class="field"><label>Importo contrattualizzato (€)</label><input type="number" id="mImporto" min="0" step="500" placeholder="0"></div>
         <div class="field"><label>Data inizio</label><input type="date" id="mInizio"></div>
@@ -418,6 +420,19 @@
       </div>
     </div>
     <footer><div></div><div class="right"><button class="btn" id="cancelCliente">Annulla</button><button class="btn primary" id="saveCliente">Salva cliente</button></div></footer>
+  </div>
+</div>
+
+<!-- Modal soggetti contraenti -->
+<div class="overlay" id="soggOverlay" style="z-index:60">
+  <div class="modal narrow">
+    <header><h2>Soggetti contraenti</h2><button class="btn icon" id="closeSogg">✕</button></header>
+    <div class="body">
+      <div class="hint" style="color:var(--muted);margin-bottom:10px">L'elenco dei soggetti tra cui scegliere nel form della commessa (es. Studio Tomalino, Elba Srl…).</div>
+      <div id="soggRows"></div>
+      <button class="btn sm" id="addSoggBtn" type="button" style="margin-top:6px">＋ Aggiungi soggetto</button>
+    </div>
+    <footer><div></div><div class="right"><button class="btn primary" id="saveSogg">Salva</button></div></footer>
   </div>
 </div>
 
@@ -487,6 +502,7 @@ let anagrafica = [];
 let commesse = [];
 let timesheet = [];
 let clienti = [];
+let soggetti = [];
 let currentUser = null;
 let subscribed = false;
 let realtimeTimer = null;
@@ -709,12 +725,13 @@ function fattStatus(f){
 }
 
 /* ---------- Filtri ---------- */
-const state = { search:"",stato:"",cliente:"",risorsa:"",vista:"" };
+const state = { search:"",stato:"",cliente:"",sogg:"",risorsa:"",vista:"" };
 function filtered(){
   let arr = commesse.map(derive);
   if(state.search){ const q=state.search.toLowerCase(); arr=arr.filter(c=>c.nome.toLowerCase().includes(q)||c.cliente.toLowerCase().includes(q)); }
   if(state.stato) arr=arr.filter(c=>c.stato===state.stato);
   if(state.cliente) arr=arr.filter(c=>c.cliente===state.cliente);
+  if(state.sogg) arr=arr.filter(c=>(c.soggettoContraente||"")===state.sogg);
   if(state.risorsa) arr=arr.filter(c=>(c.allocazioni||[]).some(a=>a.risorsaId===state.risorsa)||tsForCommessa(c.id).some(t=>t.risorsaId===state.risorsa));
   if(state.vista==="risk") arr=arr.filter(c=>c.atRisk);
   if(state.vista==="open") arr=arr.filter(c=>c.stato==="In corso");
@@ -875,6 +892,7 @@ function rowHtml(c){
   </tr>
   <tr class="detail" data-detail="${c.id}" style="display:none"><td colspan="10"><div class="detailinner">
     <div class="col">
+      ${c.soggettoContraente?`<div style="font-size:12px;margin-bottom:8px"><span style="color:var(--muted)">Soggetto contraente:</span> <b>${escapeHtml(c.soggettoContraente)}</b></div>`:''}
       <h5>Risorse & consuntivo timesheet</h5>
       ${flags?`<div class="warn-flags">${flags}</div>`:``}
       <table class="restable"><thead><tr><th>Risorsa</th><th>Ruolo</th><th class="num">Alloc.</th><th class="num">Real.</th><th class="num">€/h</th><th class="num">Costo</th></tr></thead>
@@ -1096,6 +1114,7 @@ document.querySelectorAll(".tab").forEach(t=>{
 document.getElementById("search").addEventListener("input",e=>{ state.search=e.target.value; renderAll(); });
 document.getElementById("fStato").addEventListener("change",e=>{ state.stato=e.target.value; renderAll(); });
 document.getElementById("fCliente").addEventListener("change",e=>{ state.cliente=e.target.value; renderAll(); });
+document.getElementById("fSogg").addEventListener("change",e=>{ state.sogg=e.target.value; renderAll(); });
 document.getElementById("fRisorsa").addEventListener("change",e=>{ state.risorsa=e.target.value; renderAll(); });
 document.getElementById("fRischio").addEventListener("change",e=>{ state.vista=e.target.value; renderAll(); });
 document.querySelectorAll("#tbl thead th[data-sort]").forEach(th=>{
@@ -1142,7 +1161,7 @@ document.getElementById("fileInput").addEventListener("change",e=>{
   }catch(err){ alert("Impossibile leggere il file: "+err.message); } };
   rd.readAsText(file); e.target.value="";
 });
-function normCommessa(c){ return { id:c.id||uid("c"), nome:c.nome||"Senza nome", cliente:c.cliente||"", stato:c.stato||"In corso", inizio:c.inizio||"", scadenza:c.scadenza||"", importo:+c.importo||0, orePreviste:+c.orePreviste||0, allocazioni:(c.allocazioni||[]).map(a=>({risorsaId:a.risorsaId,alloc:+a.alloc||0})), scadenze:(c.scadenze||[]).map(s=>({id:s.id||uid("s"),tipo:s.tipo||"intermedia",data:s.data||"",descrizione:s.descrizione||"",completata:!!s.completata,importo:+s.importo||0,emessa:!!s.emessa,dataEmissione:s.dataEmissione||"",incassata:!!s.incassata,dataIncasso:s.dataIncasso||""})) }; }
+function normCommessa(c){ return { id:c.id||uid("c"), nome:c.nome||"Senza nome", cliente:c.cliente||"", soggettoContraente:c.soggettoContraente||"", stato:c.stato||"In corso", inizio:c.inizio||"", scadenza:c.scadenza||"", importo:+c.importo||0, orePreviste:+c.orePreviste||0, allocazioni:(c.allocazioni||[]).map(a=>({risorsaId:a.risorsaId,alloc:+a.alloc||0})), scadenze:(c.scadenze||[]).map(s=>({id:s.id||uid("s"),tipo:s.tipo||"intermedia",data:s.data||"",descrizione:s.descrizione||"",completata:!!s.completata,importo:+s.importo||0,emessa:!!s.emessa,dataEmissione:s.dataEmissione||"",incassata:!!s.incassata,dataIncasso:s.dataIncasso||""})) }; }
 function migrateOld(arr){ // vecchio formato: array di commesse con risorse{nome,ruolo,alloc,real,costo}
   const anag={}; const ts=[]; let ci=0;
   const newComm=arr.map(c=>{ const alloc=(c.risorse||[]).map(r=>{ const key=r.nome+"|"+(r.ruolo||""); if(!anag[key]) anag[key]={id:"r"+(Object.keys(anag).length+1),nome:r.nome,ruolo:r.ruolo||"",costo:+r.costo||0}; const rid=anag[key].id;
@@ -1166,6 +1185,7 @@ function csv(s){ s=String(s||""); return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""
 function refreshFilterOptions(){
   fill("fStato",[...new Set(commesse.map(c=>c.stato))],state.stato);
   fill("fCliente",[...new Set(commesse.map(c=>c.cliente))].sort(),state.cliente);
+  fill("fSogg",[...new Set([...soggetti.map(s=>s.nome), ...commesse.map(c=>c.soggettoContraente).filter(Boolean)])].sort(),state.sogg);
   const rs=document.getElementById("fRisorsa"); const cur=state.risorsa;
   rs.innerHTML=`<option value="">Tutte</option>`+anagrafica.map(r=>`<option value="${r.id}" ${r.id===cur?"selected":""}>${escapeHtml(r.nome)}</option>`).join("");
   const dl=document.getElementById("clientiList"); if(dl) dl.innerHTML=clienti.map(c=>`<option value="${escapeHtml(c.nome)}"></option>`).join("");
@@ -1190,6 +1210,7 @@ function openModal(id){
   document.getElementById("modalTitle").textContent=c?"Modifica commessa":"Nuova commessa";
   document.getElementById("mNome").value=c?c.nome:"";
   document.getElementById("mCliente").value=c?c.cliente:"";
+  populateSoggSelect(c?(c.soggettoContraente||""):"");
   document.getElementById("mStato").value=c?c.stato:"In corso";
   document.getElementById("mImporto").value=c?c.importo:"";
   document.getElementById("mInizio").value=c?c.inizio:"";
@@ -1270,6 +1291,7 @@ async function saveModal(){
   if(!nome){ alert("Inserisci il nome della commessa."); return; }
   const obj={ nome,
     cliente:document.getElementById("mCliente").value.trim(),
+    soggettoContraente:document.getElementById("mSogg").value,
     stato:document.getElementById("mStato").value,
     inizio:document.getElementById("mInizio").value,
     scadenza:document.getElementById("mScadenza").value,
@@ -1278,7 +1300,7 @@ async function saveModal(){
     allocazioni:readAlloc(), scadenze:readSc() };
   if(!sbc){ if(editId){ const i=commesse.findIndex(c=>c.id===editId); commesse[i]={...commesse[i],...obj,id:editId}; } else commesse.push({...obj,id:uid("c")}); closeModal(); refreshFilterOptions(); renderAll(); return; }
   if(editId){
-    const {error}=await sbc.from('commesse').update({nome:obj.nome,cliente:obj.cliente,stato:obj.stato,inizio:obj.inizio||null,scadenza:obj.scadenza||null,importo:obj.importo,ore_previste:obj.orePreviste}).eq('id',editId);
+    const {error}=await sbc.from('commesse').update({nome:obj.nome,cliente:obj.cliente,soggetto_contraente:obj.soggettoContraente||'',stato:obj.stato,inizio:obj.inizio||null,scadenza:obj.scadenza||null,importo:obj.importo,ore_previste:obj.orePreviste}).eq('id',editId);
     if(error){ alert("Errore salvataggio: "+error.message); return; }
     await sbc.from('allocazioni').delete().eq('commessa_id',editId);
     await sbc.from('scadenze').delete().eq('commessa_id',editId);
@@ -1337,6 +1359,46 @@ async function saveRes(){
   renderTimesheet();
 }
 
+/* ============================================================
+   MODAL SOGGETTI CONTRAENTI (elenco gestibile dall'utente)
+   ============================================================ */
+const soggOverlay=document.getElementById("soggOverlay");
+document.getElementById("mSoggManage").addEventListener("click",openSogg);
+document.getElementById("closeSogg").addEventListener("click",closeSogg);
+soggOverlay.addEventListener("click",e=>{ if(e.target===soggOverlay) closeSogg(); });
+document.getElementById("addSoggBtn").addEventListener("click",()=>addSoggRow());
+document.getElementById("saveSogg").addEventListener("click",saveSogg);
+function openSogg(){ const box=document.getElementById("soggRows"); box.innerHTML=""; (soggetti.length?soggetti:[{nome:""}]).forEach(s=>addSoggRow(s)); soggOverlay.classList.add("open"); }
+function closeSogg(){ soggOverlay.classList.remove("open"); }
+function addSoggRow(s){ s=s||{};
+  const div=document.createElement("div"); div.className="anag-row"; div.style.gridTemplateColumns="1fr auto"; div.dataset.id=s.id||"";
+  div.innerHTML=`<div class="field"><input type="text" class="sg-nome" placeholder="Nome soggetto (es. Elba Srl)" value="${escapeHtml(s.nome||"")}"></div>
+    <button class="del-x" type="button" title="Rimuovi">✕</button>`;
+  div.querySelector(".del-x").addEventListener("click",()=>div.remove());
+  document.getElementById("soggRows").appendChild(div);
+}
+async function saveSogg(){
+  const rows=[...document.querySelectorAll("#soggRows .anag-row")];
+  const next=rows.map(r=>({ id:r.dataset.id||"", nome:r.querySelector(".sg-nome").value.trim() })).filter(s=>s.nome);
+  if(!sbc){ soggetti=next.map(s=>({...s,id:s.id||uid("sg")})); closeSogg(); populateSoggSelect(document.getElementById("mSogg").value); refreshFilterOptions(); return; }
+  const keepIds=new Set(next.filter(s=>s.id).map(s=>s.id));
+  const toDel=soggetti.filter(s=>!keepIds.has(s.id)).map(s=>s.id);
+  if(toDel.length) await sbc.from('soggetti').delete().in('id',toDel);
+  for(const s of next){
+    if(s.id) await sbc.from('soggetti').update({nome:s.nome}).eq('id',s.id);
+    else { const {error}=await sbc.from('soggetti').insert({nome:s.nome}); if(error && !/duplicate|unique/i.test(error.message)) notify("Soggetto non salvato: "+error.message,true); }
+  }
+  const cur=document.getElementById("mSogg")?document.getElementById("mSogg").value:"";
+  closeSogg(); await dbReloadRender(); populateSoggSelect(cur);
+}
+function populateSoggSelect(current){
+  const sel=document.getElementById("mSogg"); if(!sel) return;
+  const names=[...new Set(soggetti.map(s=>s.nome))];
+  if(current && !names.includes(current)) names.unshift(current);
+  sel.innerHTML=`<option value="">— nessuno —</option>`+names.map(n=>`<option ${n===current?"selected":""}>${escapeHtml(n)}</option>`).join("");
+  sel.value=current||"";
+}
+
 /* timesheet controls */
 document.getElementById("tsRes").addEventListener("change",e=>{ tsResId=e.target.value; renderTimesheet(); });
 document.getElementById("wkPrev").addEventListener("click",()=>{ tsWeek=addDays(tsWeek,-7); renderTimesheet(); });
@@ -1365,16 +1427,17 @@ async function fetchAll(table, orderCol, silent){
 }
 async function loadFromDB(){
   if(!sbc) return;
-  const [R,C,A,T,S,CL] = await Promise.all([
-    fetchAll('risorse','nome'), fetchAll('commesse'), fetchAll('allocazioni'), fetchAll('timesheet'), fetchAll('scadenze'), fetchAll('clienti','nome',true)
+  const [R,C,A,T,S,CL,SG] = await Promise.all([
+    fetchAll('risorse','nome'), fetchAll('commesse'), fetchAll('allocazioni'), fetchAll('timesheet'), fetchAll('scadenze'), fetchAll('clienti','nome',true), fetchAll('soggetti','nome',true)
   ]);
   clienti=CL.map(c=>({id:c.id,nome:c.nome||'',tipo:c.tipo||'',piva:c.piva||'',codiceUnivoco:c.codice_univoco||'',referenteNome:c.referente_nome||'',referenteContatto:c.referente_contatto||'',note:c.note||''}));
+  soggetti=SG.map(s=>({id:s.id,nome:s.nome||''}));
   anagrafica=R.map(r=>({id:r.id,nome:r.nome,ruolo:r.ruolo||'',costo:+r.costo||0,email:r.email||''}));
   timesheet=T.map(t=>({id:t.id,risorsaId:t.risorsa_id,commessaId:t.commessa_id,data:t.data,ore:+t.ore||0}));
   const allocBy={},scBy={};
   A.forEach(a=>{(allocBy[a.commessa_id]=allocBy[a.commessa_id]||[]).push({id:a.id,risorsaId:a.risorsa_id,alloc:+a.alloc||0});});
   S.forEach(s=>{(scBy[s.commessa_id]=scBy[s.commessa_id]||[]).push({id:s.id,tipo:s.tipo,data:s.data||'',descrizione:s.descrizione||'',completata:!!s.completata,importo:+s.importo||0,emessa:!!s.emessa,dataEmissione:s.data_emissione||'',incassata:!!s.incassata,dataIncasso:s.data_incasso||''});});
-  commesse=C.map(c=>({id:c.id,nome:c.nome,cliente:c.cliente||'',stato:c.stato||'In corso',inizio:c.inizio||'',scadenza:c.scadenza||'',importo:+c.importo||0,orePreviste:+c.ore_previste||0,allocazioni:allocBy[c.id]||[],scadenze:scBy[c.id]||[]}));
+  commesse=C.map(c=>({id:c.id,nome:c.nome,cliente:c.cliente||'',soggettoContraente:c.soggetto_contraente||'',stato:c.stato||'In corso',inizio:c.inizio||'',scadenza:c.scadenza||'',importo:+c.importo||0,orePreviste:+c.ore_previste||0,allocazioni:allocBy[c.id]||[],scadenze:scBy[c.id]||[]}));
 }
 async function dbReloadRender(){ await loadFromDB(); refreshFilterOptions(); renderAll();
   const tv=document.getElementById("view-timesheet"); if(tv&&tv.classList.contains("active")) renderTimesheet();
@@ -1396,7 +1459,7 @@ async function dbScUpdate(id,patch){ if(!sbc)return; const {error}=await sbc.fro
 function notify(msg,isErr){ const t=document.getElementById("toast"); if(!t)return; t.textContent=msg; t.style.background=isErr?levelColor("critical"):levelColor("good"); t.style.opacity="1"; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity="0"; }, isErr?7000:3500); }
 function scToRow(cid,s){ return {commessa_id:cid,tipo:s.tipo,data:s.data||null,descrizione:s.descrizione||'',completata:!!s.completata,importo:s.importo||0,emessa:!!s.emessa,data_emissione:s.dataEmissione||null,incassata:!!s.incassata,data_incasso:s.dataIncasso||null}; }
 async function dbInsertCommessa(c){
-  const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single();
+  const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',soggetto_contraente:c.soggettoContraente||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single();
   if(error){ alert("Errore salvataggio: "+error.message); return null; }
   const cid=data.id;
   const allocs=(c.allocazioni||[]).filter(a=>a.risorsaId).map(a=>({commessa_id:cid,risorsa_id:a.risorsaId,alloc:a.alloc||0}));
@@ -1419,7 +1482,7 @@ async function pushAllToDB(anag,comm,ts,cli){
   const rMap={};
   for(const r of anag){ const {data,error}=await sbc.from('risorse').insert({nome:r.nome,ruolo:r.ruolo||'',costo:r.costo||0,email:r.email||null}).select('id').single(); if(error){alert(error.message);return;} rMap[r.id]=data.id; }
   const cMap={};
-  for(const c of comm){ const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single(); if(error){alert(error.message);return;} cMap[c.id]=data.id;
+  for(const c of comm){ const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',soggetto_contraente:c.soggettoContraente||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single(); if(error){alert(error.message);return;} cMap[c.id]=data.id;
     const allocs=(c.allocazioni||[]).map(a=>({commessa_id:data.id,risorsa_id:rMap[a.risorsaId]||null,alloc:a.alloc||0}));
     if(allocs.length) await sbc.from('allocazioni').insert(allocs);
     const scs=(c.scadenze||[]).map(s=>scToRow(data.id,s));
@@ -1570,8 +1633,8 @@ document.getElementById("excelBtn").addEventListener("click",exportExcel);
 function exportExcel(){
   if(typeof XLSX==="undefined"){ alert("Libreria Excel non caricata: controlla la connessione a internet e riprova."); return; }
   const D=commesse.map(derive);
-  const shComm=[["Commessa","Cliente","P.IVA","Cod. univoco","Stato","Inizio","Scadenza","Importo","Ore previste","Ore realizzate","Costo","Margine EUR","Margine %","Fatturato","Incassato","Da incassare"]];
-  D.forEach(c=>{ const cl=clienteByName(c.cliente)||{}; shComm.push([c.nome,c.cliente,cl.piva||"",cl.codiceUnivoco||"",c.stato,c.inizio||"",c.scadenza||"",c.importo,Math.round(c.orePreviste*10)/10,Math.round(c.oreReal*10)/10,Math.round(c.costoReal),Math.round(c.margineEuro),Math.round(c.marginePct*1000)/10,Math.round(c.fEmesso),Math.round(c.fIncassato),Math.round(c.daIncassare)]); });
+  const shComm=[["Commessa","Cliente","Soggetto contraente","P.IVA","Cod. univoco","Stato","Inizio","Scadenza","Importo","Ore previste","Ore realizzate","Costo","Margine EUR","Margine %","Fatturato","Incassato","Da incassare"]];
+  D.forEach(c=>{ const cl=clienteByName(c.cliente)||{}; shComm.push([c.nome,c.cliente,c.soggettoContraente||"",cl.piva||"",cl.codiceUnivoco||"",c.stato,c.inizio||"",c.scadenza||"",c.importo,Math.round(c.orePreviste*10)/10,Math.round(c.oreReal*10)/10,Math.round(c.costoReal),Math.round(c.margineEuro),Math.round(c.marginePct*1000)/10,Math.round(c.fEmesso),Math.round(c.fIncassato),Math.round(c.daIncassare)]); });
   const shCli=[["Cliente","Tipo","P.IVA","Cod. univoco (SDI)","Referente","Contatto","Note","N. commesse","Valore contrattualizzato"]];
   clienti.forEach(cl=>{ const comm=commesse.filter(c=>(c.cliente||'').toLowerCase()===(cl.nome||'').toLowerCase()); const val=comm.reduce((s,c)=>s+(+c.importo||0),0); shCli.push([cl.nome,cl.tipo||'',cl.piva,cl.codiceUnivoco,cl.referenteNome,cl.referenteContatto,cl.note,comm.length,val]); });
   const shTs=[["Data","Risorsa","Ruolo","Commessa","Cliente","Ore","Costo orario","Costo"]];
