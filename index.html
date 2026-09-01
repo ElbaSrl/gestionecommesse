@@ -6,6 +6,7 @@
 <title>Dashboard Commesse — Cloud (team)</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Commesse">
@@ -201,6 +202,7 @@
       <button class="btn" id="importBtn" title="Carica un file JSON esportato in precedenza">↥ Importa</button>
       <button class="btn" id="exportBtn" title="Backup completo in JSON (clienti, commesse, risorse, timesheet)">↧ Backup JSON</button>
       <button class="btn" id="excelBtn" title="Esporta i dati in Excel (.xlsx)">↧ Excel</button>
+      <button class="btn" id="gcalBtn" title="Collega Google Calendar per sincronizzare le scadenze">📅 Collega Calendar</button>
       <button class="btn primary" id="addBtn">＋ Nuova commessa</button>
       <span id="userChip" style="font-size:12px;color:var(--muted);margin-left:4px"></span>
       <button class="btn" id="logoutBtn" style="display:none">Esci</button>
@@ -498,6 +500,18 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const CONFIGURED = SUPABASE_URL.indexOf("http")===0 && SUPABASE_ANON_KEY.length>20;
 let sbc = null;
 if (CONFIGURED && window.supabase) sbc = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ============================================================
+   CONFIG GOOGLE CALENDAR — INCOLLA QUI I DUE VALORI (vedi guida)
+     • GOOGLE_CLIENT_ID    = "ID client OAuth" (finisce con .apps.googleusercontent.com)
+     • SHARED_CALENDAR_ID  = ID del calendario condiviso (es. xxxx@group.calendar.google.com)
+   Finché restano i segnaposto, la sincronizzazione col calendario resta spenta
+   e il resto della dashboard funziona normalmente.
+   ============================================================ */
+const GOOGLE_CLIENT_ID = "897637480333-j7v94jpm19han7s37g70bp1avesg85ek.apps.googleusercontent.com";
+const SHARED_CALENDAR_ID = "elmazieriselda@gmail.com";
+/* ============================================================ */
+let gToken=null, gTokenExp=0, gTokenClient=null, gConnected=false;
 
 let _scid = 0;
 let anagrafica = [];
@@ -1140,7 +1154,10 @@ async function duplicate(id){ const c=commById(id); if(!c) return;
 }
 async function delCommessa(id){
   if(!sbc){ commesse=commesse.filter(x=>x.id!==id); timesheet=timesheet.filter(t=>t.commessaId!==id); refreshFilterOptions(); renderAll(); return; }
-  const {error}=await sbc.from('commesse').delete().eq('id',id); if(error){ alert("Errore eliminazione: "+error.message); return; } await dbReloadRender();
+  const c=commById(id);
+  const {error}=await sbc.from('commesse').delete().eq('id',id); if(error){ alert("Errore eliminazione: "+error.message); return; }
+  if(c) deleteCommessaEvents(c);
+  await dbReloadRender();
 }
 
 /* theme */
@@ -1243,8 +1260,9 @@ function addAllocRow(a){ a=a||{};
 }
 function readAlloc(){ return [...document.querySelectorAll("#allocRows .alloc-row")].map(r=>({ risorsaId:r.querySelector(".a-res").value, alloc:+r.querySelector(".a-alloc").value||0 })).filter(a=>a.risorsaId&&(a.alloc||a.alloc===0)); }
 
+function uuidv4(){ try{ if(window.crypto&&crypto.randomUUID) return crypto.randomUUID(); }catch(e){} return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16);}); }
 function addScRow(s){ s=s||{tipo:"intermedia"};
-  const div=document.createElement("div"); div.className="sc-row"+(s.tipo==="fatturazione"?" is-fatt":"");
+  const div=document.createElement("div"); div.className="sc-row"+(s.tipo==="fatturazione"?" is-fatt":""); div.dataset.id=s.id||"";
   div.innerHTML=`
     <div class="sc-top">
       <div class="field" style="min-width:170px"><label>Tipo</label><select class="s-tipo">
@@ -1272,7 +1290,7 @@ function addScRow(s){ s=s||{tipo:"intermedia"};
 function readSc(){
   return [...document.querySelectorAll("#scRows .sc-row")].map(r=>{
     const tipo=r.querySelector(".s-tipo").value;
-    const base={ id:uid("s"), tipo, data:r.querySelector(".s-data").value, descrizione:r.querySelector(".s-desc").value.trim() };
+    const base={ id:r.dataset.id||uuidv4(), tipo, data:r.querySelector(".s-data").value, descrizione:r.querySelector(".s-desc").value.trim() };
     if(tipo==="fatturazione"){ const em=r.querySelector(".s-emessa").checked, inc=r.querySelector(".s-incassata").checked;
       return { ...base, importo:+r.querySelector(".s-importo").value||0, emessa:em||inc, dataEmissione:(em||inc)?todayISO:"", incassata:inc, dataIncasso:inc?todayISO:"", completata:inc }; }
     return { ...base, completata:r.querySelector(".s-compl").checked };
@@ -1307,20 +1325,25 @@ async function saveModal(){
     programmaFinanziamento:document.getElementById("mProgramma").value.trim(),
     note:document.getElementById("mNote").value.trim(),
     allocazioni:readAlloc(), scadenze:readSc() };
+  let _removedScIds=[], _savedCommId=null;
   if(!sbc){ if(editId){ const i=commesse.findIndex(c=>c.id===editId); commesse[i]={...commesse[i],...obj,id:editId}; } else commesse.push({...obj,id:uid("c")}); closeModal(); refreshFilterOptions(); renderAll(); return; }
   if(editId){
     const {error}=await sbc.from('commesse').update({nome:obj.nome,cliente:obj.cliente,soggetto_contraente:obj.soggettoContraente||'',programma_finanziamento:obj.programmaFinanziamento||'',note:obj.note||'',stato:obj.stato,inizio:obj.inizio||null,scadenza:obj.scadenza||null,importo:obj.importo,ore_previste:obj.orePreviste}).eq('id',editId);
     if(error){ alert("Errore salvataggio: "+error.message); return; }
     await sbc.from('allocazioni').delete().eq('commessa_id',editId);
-    await sbc.from('scadenze').delete().eq('commessa_id',editId);
     const allocs=obj.allocazioni.filter(a=>a.risorsaId).map(a=>({commessa_id:editId,risorsa_id:a.risorsaId,alloc:a.alloc||0}));
     if(allocs.length) await sbc.from('allocazioni').insert(allocs);
+    const oldSc=(commById(editId)&&commById(editId).scadenze)||[];
+    _removedScIds=oldSc.filter(s=>!obj.scadenze.some(n=>n.id===s.id)).map(s=>s.id);
+    if(_removedScIds.length) await sbc.from('scadenze').delete().in('id',_removedScIds);
     const scs=obj.scadenze.map(s=>scToRow(editId,s));
-    if(scs.length) await sbc.from('scadenze').insert(scs);
+    if(scs.length) await sbc.from('scadenze').upsert(scs,{onConflict:'id'});
+    _savedCommId=editId;
   } else {
-    await dbInsertCommessa(obj);
+    _savedCommId=await dbInsertCommessa(obj);
   }
   closeModal(); await dbReloadRender();
+  if(_savedCommId) syncCommessaToCalendar(_savedCommId, _removedScIds);
 }
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(overlay.classList.contains("open")) closeModal(); if(resOverlay.classList.contains("open")) closeRes(); } });
 
@@ -1466,7 +1489,7 @@ function setTsStatus(err){ const el=document.getElementById("tsStatus"); if(!el)
 async function dbTsDelete(resId,commId,day){ if(!sbc)return; const {error}=await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day}); if(error) notify("Errore: "+error.message, true); }
 async function dbScUpdate(id,patch){ if(!sbc)return; const {error}=await sbc.from('scadenze').update(patch).eq('id',id); if(error) notify("Modifica non salvata: "+error.message, true); }
 function notify(msg,isErr){ const t=document.getElementById("toast"); if(!t)return; t.textContent=msg; t.style.background=isErr?levelColor("critical"):levelColor("good"); t.style.opacity="1"; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity="0"; }, isErr?7000:3500); }
-function scToRow(cid,s){ return {commessa_id:cid,tipo:s.tipo,data:s.data||null,descrizione:s.descrizione||'',completata:!!s.completata,importo:s.importo||0,emessa:!!s.emessa,data_emissione:s.dataEmissione||null,incassata:!!s.incassata,data_incasso:s.dataIncasso||null}; }
+function scToRow(cid,s){ const row={commessa_id:cid,tipo:s.tipo,data:s.data||null,descrizione:s.descrizione||'',completata:!!s.completata,importo:s.importo||0,emessa:!!s.emessa,data_emissione:s.dataEmissione||null,incassata:!!s.incassata,data_incasso:s.dataIncasso||null}; if(s.id) row.id=s.id; return row; }
 async function dbInsertCommessa(c){
   const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',soggetto_contraente:c.soggettoContraente||'',programma_finanziamento:c.programmaFinanziamento||'',note:c.note||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single();
   if(error){ alert("Errore salvataggio: "+error.message); return null; }
@@ -1673,6 +1696,82 @@ function exportExcel(){
   }catch(e){}
 })();
 
+
+/* ============================================================
+   GOOGLE CALENDAR — sincronizzazione scadenze sul calendario condiviso
+   ============================================================ */
+function gcalConfigured(){ return GOOGLE_CLIENT_ID.indexOf(".apps.googleusercontent.com")>0 && SHARED_CALENDAR_ID.length>3; }
+function initGoogleClient(){
+  if(gTokenClient || !gcalConfigured() || !(window.google&&google.accounts&&google.accounts.oauth2)) return gTokenClient;
+  gTokenClient=google.accounts.oauth2.initTokenClient({ client_id:GOOGLE_CLIENT_ID, scope:'https://www.googleapis.com/auth/calendar.events', callback:()=>{} });
+  return gTokenClient;
+}
+function gcalToken(interactive){
+  return new Promise(resolve=>{
+    if(gToken && Date.now()<gTokenExp-60000) return resolve(gToken);
+    const client=initGoogleClient();
+    if(!client) return resolve(null);
+    client.callback=(resp)=>{ if(resp&&resp.access_token){ gToken=resp.access_token; gTokenExp=Date.now()+((resp.expires_in||3500)*1000); gConnected=true; updateGcalBtn(); resolve(gToken); } else resolve(null); };
+    try{ client.requestAccessToken({prompt: interactive?'consent':''}); }catch(e){ resolve(null); }
+  });
+}
+function updateGcalBtn(){ const b=document.getElementById("gcalBtn"); if(!b) return;
+  if(!gcalConfigured()){ b.textContent="📅 Calendar (da configurare)"; b.style.opacity=".7"; return; }
+  b.textContent=gConnected?"📅 Calendar ✓":"📅 Collega Calendar"; b.style.opacity="1";
+}
+const GCAL_BASE=()=>`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(SHARED_CALENDAR_ID)}/events`;
+function evId(raw){ return String(raw).replace(/-/g,'').toLowerCase(); }
+function nextDay(isoStr){ const d=parseISO(isoStr); d.setDate(d.getDate()+1); return iso(d); }
+async function gcalUpsertEvent(id, summary, dateISO, description){
+  if(!dateISO) return "skip"; const tok=await gcalToken(false); if(!tok) return "noauth";
+  const body={ summary, description:description||"", start:{date:dateISO}, end:{date:nextDay(dateISO)}, transparency:"transparent", reminders:{useDefault:false} };
+  const evid=evId(id); const H={Authorization:"Bearer "+tok,"Content-Type":"application/json"};
+  let r=await fetch(GCAL_BASE()+"/"+evid, {method:"PUT", headers:H, body:JSON.stringify(body)});
+  if(r.status===404||r.status===410){ r=await fetch(GCAL_BASE(), {method:"POST", headers:H, body:JSON.stringify({id:evid,...body})}); }
+  if(!r.ok && r.status!==409){ const t=await r.text().catch(()=>''); notify("Calendar ("+r.status+"): "+t.slice(0,140), true); return "err"; }
+  return "ok";
+}
+async function gcalDeleteEvent(id){ const tok=await gcalToken(false); if(!tok) return; try{ await fetch(GCAL_BASE()+"/"+evId(id), {method:"DELETE", headers:{Authorization:"Bearer "+tok}}); }catch(e){} }
+function scadenzaEvent(c,s){
+  const ti=(TIPI[s.tipo]||TIPI.intermedia).label;
+  const summary=`${ti}: ${s.descrizione||c.nome} — ${c.nome}${c.cliente?` (${c.cliente})`:""}`;
+  let desc=`Commessa: ${c.nome}\nCliente: ${c.cliente||"-"}`;
+  if(c.soggettoContraente) desc+=`\nContraente: ${c.soggettoContraente}`;
+  if(s.tipo==="fatturazione") desc+=`\nImporto: ${euro(s.importo||0)} · ${fattStatus(s).label}`;
+  return {summary,desc};
+}
+async function syncCommessaToCalendar(commId, removedScIds){
+  if(!sbc || !gcalConfigured()) return;
+  const c=commById(commId); if(!c) return;
+  const tok=await gcalToken(false);
+  if(!tok){ notify("Scadenze salvate. Per portarle sul calendario clicca «Collega Calendar».", false); return; }
+  let n=0;
+  for(const s of (c.scadenze||[])){ if(!s.data) continue; const e=scadenzaEvent(c,s); if(await gcalUpsertEvent(s.id,e.summary,s.data,e.desc)==="ok") n++; }
+  if(c.scadenza){ if(await gcalUpsertEvent("fin"+c.id, `Consegna: ${c.nome}${c.cliente?` (${c.cliente})`:""}`, c.scadenza, `Consegna finale\nCommessa: ${c.nome}`)==="ok") n++; }
+  for(const id of (removedScIds||[])) await gcalDeleteEvent(id);
+  if(n) notify("Sincronizzate "+n+" scadenze su Google Calendar.", false);
+}
+async function deleteCommessaEvents(c){
+  if(!sbc || !gcalConfigured() || !gConnected) return;
+  for(const s of (c.scadenze||[])) await gcalDeleteEvent(s.id);
+  if(c.scadenza) await gcalDeleteEvent("fin"+c.id);
+}
+async function syncAllScadenze(){
+  const tok=await gcalToken(true); if(!tok){ notify("Collegamento a Google non riuscito.", true); return; }
+  let n=0;
+  for(const c of commesse){
+    for(const s of (c.scadenze||[])){ if(!s.data) continue; const e=scadenzaEvent(c,s); if(await gcalUpsertEvent(s.id,e.summary,s.data,e.desc)==="ok") n++; }
+    if(c.scadenza){ if(await gcalUpsertEvent("fin"+c.id, `Consegna: ${c.nome}${c.cliente?` (${c.cliente})`:""}`, c.scadenza, `Consegna finale\nCommessa: ${c.nome}`)==="ok") n++; }
+  }
+  notify("Sincronizzazione completata: "+n+" eventi sul calendario.", false);
+}
+{ const gb=document.getElementById("gcalBtn"); if(gb) gb.addEventListener("click", async ()=>{
+  if(!gcalConfigured()){ alert("Google Calendar non è ancora configurato.\nIncolla CLIENT ID e CALENDAR ID nella sezione CONFIG GOOGLE del file (vedi guida)."); return; }
+  const tok=await gcalToken(true);
+  if(tok){ updateGcalBtn(); if(window.confirm("Google Calendar collegato.\nVuoi sincronizzare subito tutte le scadenze esistenti sul calendario condiviso?")) syncAllScadenze(); }
+  else notify("Collegamento annullato o non riuscito.", true);
+}); }
+updateGcalBtn();
 
 /* INIT */
 boot();
