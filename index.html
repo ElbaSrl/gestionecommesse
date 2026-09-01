@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Commesse — Cloud (team)</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Commesse">
+<meta name="theme-color" content="#2a78d6">
 <style>
   :root {
     --surface-1: #fcfcfb; --page: #f9f9f7; --card: #ffffff;
@@ -194,7 +199,8 @@
     <div class="toolbar">
       <button class="btn" id="themeBtn" title="Tema chiaro/scuro">◐ Tema</button>
       <button class="btn" id="importBtn" title="Carica un file JSON esportato in precedenza">↥ Importa</button>
-      <button class="btn" id="exportBtn" title="Scarica tutto (commesse, risorse, timesheet) in JSON">↧ Esporta</button>
+      <button class="btn" id="exportBtn" title="Backup completo in JSON (clienti, commesse, risorse, timesheet)">↧ Backup JSON</button>
+      <button class="btn" id="excelBtn" title="Esporta i dati in Excel (.xlsx)">↧ Excel</button>
       <button class="btn primary" id="addBtn">＋ Nuova commessa</button>
       <span id="userChip" style="font-size:12px;color:var(--muted);margin-left:4px"></span>
       <button class="btn" id="logoutBtn" style="display:none">Esci</button>
@@ -206,6 +212,7 @@
     <button class="tab active" data-view="overview">Panoramica</button>
     <button class="tab" data-view="timesheet">Timesheet</button>
     <button class="tab" data-view="billing">Scadenze &amp; Fatturazione</button>
+    <button class="tab" data-view="clienti">Clienti</button>
   </div>
 
   <!-- ============ PANORAMICA ============ -->
@@ -274,12 +281,15 @@
         <div style="display:flex;gap:8px">
           <button class="btn sm" id="manageRes">Gestisci risorse</button>
           <button class="btn sm" id="tsCsv">↧ Timesheet CSV</button>
+          <button class="btn sm" id="wipeBtn" title="Cancella tutti i dati dal database condiviso">🗑 Svuota dati</button>
         </div>
       </div>
     </div>
     <div class="panel">
-      <div id="tsSummary" class="psub" style="margin-bottom:10px"></div>
+      <div id="tsSummary" class="psub" style="margin-bottom:6px"></div>
+      <div id="tsStatus" style="font-size:12px;margin-bottom:10px;min-height:16px;font-weight:600"></div>
       <div class="tsgrid-wrap"><div id="tsGrid"></div></div>
+      <div id="tsDiag" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--muted)">Aggiungi ore su un'altra commessa questa settimana:</span>
         <select id="tsAddCommessa" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px"></select>
@@ -325,6 +335,26 @@
       </div>
     </div>
   </section>
+
+  <!-- ============ CLIENTI ============ -->
+  <section class="view" id="view-clienti">
+    <div class="tablewrap">
+      <div class="tablehead">
+        <h3>Anagrafica clienti <span id="cliCount" style="color:var(--muted);font-weight:500"></span></h3>
+        <button class="btn sm primary" id="addClienteBtn">＋ Nuovo cliente</button>
+      </div>
+      <div class="psub" style="padding:0 18px 8px">Dati per la fatturazione e i contatti. La colonna "Commesse" collega automaticamente le commesse con lo stesso nome cliente.</div>
+      <div style="overflow-x:auto">
+        <table id="cliTbl">
+          <thead><tr>
+            <th>Cliente</th><th>Tipo</th><th>P.IVA</th><th>Cod. univoco (SDI)</th><th>Referente</th><th>Contatto</th>
+            <th class="num">Commesse</th><th class="num">Valore</th><th></th>
+          </tr></thead>
+          <tbody id="cliBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 </div>
 
 <!-- Modal commessa -->
@@ -334,7 +364,7 @@
     <div class="body">
       <div class="formgrid">
         <div class="field"><label>Nome commessa</label><input type="text" id="mNome" placeholder="es. Piano industriale Alfa"></div>
-        <div class="field"><label>Cliente</label><input type="text" id="mCliente" placeholder="es. Alfa S.p.A."></div>
+        <div class="field"><label>Cliente</label><input type="text" id="mCliente" list="clientiList" placeholder="es. Alfa S.p.A."><datalist id="clientiList"></datalist></div>
         <div class="field"><label>Stato</label><select id="mStato"><option>In corso</option><option>In pausa</option><option>A rischio</option><option>Completata</option><option>Non avviata</option></select></div>
         <div class="field"><label>Importo contrattualizzato (€)</label><input type="number" id="mImporto" min="0" step="500" placeholder="0"></div>
         <div class="field"><label>Data inizio</label><input type="date" id="mInizio"></div>
@@ -369,6 +399,25 @@
       <button class="btn sm" id="addAnagBtn" type="button" style="margin-top:6px">＋ Aggiungi risorsa</button>
     </div>
     <footer><div></div><div class="right"><button class="btn primary" id="saveRes">Salva</button></div></footer>
+  </div>
+</div>
+
+<!-- Modal cliente -->
+<div class="overlay" id="clienteOverlay">
+  <div class="modal narrow">
+    <header><h2 id="clienteTitle">Nuovo cliente</h2><button class="btn icon" id="closeCliente">✕</button></header>
+    <div class="body">
+      <div class="formgrid">
+        <div class="field full"><label>Ragione sociale / Nome cliente</label><input type="text" id="clNome" placeholder="es. Alfa Manifatturiera S.p.A."></div>
+        <div class="field"><label>Tipo cliente</label><select id="clTipo"><option value="">— non specificato —</option><option>Soggetto privato</option><option>Ente pubblico</option></select></div>
+        <div class="field"><label>Partita IVA</label><input type="text" id="clPiva" placeholder="IT01234567890"></div>
+        <div class="field"><label>Codice univoco (SDI)</label><input type="text" id="clCodice" placeholder="es. ABCDEF1"></div>
+        <div class="field"><label>Referente — nome</label><input type="text" id="clRefNome" placeholder="es. Mario Bianchi"></div>
+        <div class="field"><label>Referente — contatto</label><input type="text" id="clRefContatto" placeholder="email o telefono"></div>
+        <div class="field full"><label>Note</label><input type="text" id="clNote" placeholder="facoltativo"></div>
+      </div>
+    </div>
+    <footer><div></div><div class="right"><button class="btn" id="cancelCliente">Annulla</button><button class="btn primary" id="saveCliente">Salva cliente</button></div></footer>
   </div>
 </div>
 
@@ -437,6 +486,7 @@ let _scid = 0;
 let anagrafica = [];
 let commesse = [];
 let timesheet = [];
+let clienti = [];
 let currentUser = null;
 let subscribed = false;
 let realtimeTimer = null;
@@ -545,8 +595,9 @@ function genTimesheet() {
     const end = minISO(c.scadenza || todayISO, todayISO);
     (c.allocazioni||[]).forEach(a => {
       const target = +a.real || 0; if (target <= 0) return;
-      const days = weekdaysBetween(c.inizio, end);
+      let days = weekdaysBetween(c.inizio, end);
       if (!days.length) return;
+      if (days.length > 15) days = days.slice(-15); // limita il volume dei dati di esempio
       const per = target / days.length; let remaining = target;
       days.forEach((d,i) => {
         let h = (i === days.length-1) ? remaining : Math.round(per*2)/2;
@@ -934,6 +985,15 @@ function renderTimesheet(){
   document.querySelectorAll("#tsGrid .delrow").forEach(b=>{
     b.addEventListener("click",()=>{ const cid=b.dataset.clear; days.forEach(d=>tsSet(tsResId,cid,d,0)); renderTimesheet(); renderAll(); });
   });
+  tsDiagUpdate(days);
+}
+function tsDiagUpdate(days){
+  const dg=document.getElementById("tsDiag"); if(!dg) return;
+  const totAll=timesheet.length, forRes=timesheet.filter(t=>t.risorsaId===tsResId);
+  const wk=(days||[]).length? forRes.filter(t=>days.includes(t.data)).length : forRes.length;
+  let msg=`Diagnostica DB → in memoria: <b>${totAll}</b> righe timesheet totali · <b>${forRes.length}</b> per ${escapeHtml(resById(tsResId).nome)} (id ${String(tsResId||'').slice(0,8)}…) · ${wk} in questa settimana`;
+  if(totAll>0 && forRes.length===0){ const s=timesheet[0]; msg+=` — esempio riga salvata: risorsa ${String(s.risorsaId).slice(0,8)}… · commessa ${String(s.commessaId).slice(0,8)}… · data "${s.data}" · ore ${s.ore}`; }
+  dg.innerHTML=msg;
 }
 
 /* ============================================================
@@ -1026,6 +1086,7 @@ document.querySelectorAll(".tab").forEach(t=>{
     document.getElementById("view-"+t.dataset.view).classList.add("active");
     if(t.dataset.view==="timesheet") renderTimesheet();
     if(t.dataset.view==="billing") renderBilling();
+    if(t.dataset.view==="clienti") renderClienti();
   });
 });
 
@@ -1065,7 +1126,7 @@ document.getElementById("themeBtn").addEventListener("click",()=>{ const cur=doc
 
 /* ---------- Import / Export ---------- */
 document.getElementById("exportBtn").addEventListener("click",()=>{
-  const payload={ versione:2, esportato:todayISO, anagrafica, commesse, timesheet };
+  const payload={ versione:3, esportato:todayISO, clienti, anagrafica, commesse, timesheet };
   downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}),"commesse.json");
 });
 document.getElementById("importBtn").addEventListener("click",()=>document.getElementById("fileInput").click());
@@ -1074,9 +1135,9 @@ document.getElementById("fileInput").addEventListener("change",e=>{
   rd.onload=async ()=>{ try{
     const p=JSON.parse(rd.result);
     if(Array.isArray(p)){ migrateOld(p); }
-    else { anagrafica=(p.anagrafica||[]).map(r=>({id:r.id||uid("r"),nome:r.nome,ruolo:r.ruolo||'',costo:+r.costo||0,email:r.email||''})); commesse=(p.commesse||[]).map(normCommessa); timesheet=(p.timesheet||[]).map(t=>({id:t.id||uid("t"),risorsaId:t.risorsaId,commessaId:t.commessaId,data:t.data,ore:+t.ore||0})); }
+    else { anagrafica=(p.anagrafica||[]).map(r=>({id:r.id||uid("r"),nome:r.nome,ruolo:r.ruolo||'',costo:+r.costo||0,email:r.email||''})); commesse=(p.commesse||[]).map(normCommessa); timesheet=(p.timesheet||[]).map(t=>({id:t.id||uid("t"),risorsaId:t.risorsaId,commessaId:t.commessaId,data:t.data,ore:+t.ore||0})); clienti=(p.clienti||[]).map(c=>({id:c.id||uid("cl"),nome:c.nome||'',tipo:c.tipo||'',piva:c.piva||'',codiceUnivoco:c.codiceUnivoco||'',referenteNome:c.referenteNome||'',referenteContatto:c.referenteContatto||'',note:c.note||''})); }
     if(sbc){ if(!window.confirm("Importare questi dati nel database condiviso? I dati attuali verranno sostituiti per tutto il team.")) return;
-      await pushAllToDB(anagrafica,commesse,timesheet); await dbReloadRender(); toggleSeedBanner(false); alert("Import completato."); }
+      await pushAllToDB(anagrafica,commesse,timesheet,clienti); await dbReloadRender(); toggleSeedBanner(false); alert("Import completato."); }
     else { tsResId=anagrafica[0]?anagrafica[0].id:null; refreshFilterOptions(); renderAll(); }
   }catch(err){ alert("Impossibile leggere il file: "+err.message); } };
   rd.readAsText(file); e.target.value="";
@@ -1107,6 +1168,7 @@ function refreshFilterOptions(){
   fill("fCliente",[...new Set(commesse.map(c=>c.cliente))].sort(),state.cliente);
   const rs=document.getElementById("fRisorsa"); const cur=state.risorsa;
   rs.innerHTML=`<option value="">Tutte</option>`+anagrafica.map(r=>`<option value="${r.id}" ${r.id===cur?"selected":""}>${escapeHtml(r.nome)}</option>`).join("");
+  const dl=document.getElementById("clientiList"); if(dl) dl.innerHTML=clienti.map(c=>`<option value="${escapeHtml(c.nome)}"></option>`).join("");
 }
 function fill(id,arr,sel){ const s=document.getElementById(id); s.innerHTML=`<option value="">${id==="fStato"?"Tutti":"Tutti"}</option>`+arr.map(v=>`<option ${v===sel?"selected":""}>${escapeHtml(v)}</option>`).join(""); }
 
@@ -1236,6 +1298,12 @@ document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ if(overlay.classL
    ============================================================ */
 const resOverlay=document.getElementById("resOverlay");
 document.getElementById("manageRes").addEventListener("click",openRes);
+document.getElementById("wipeBtn").addEventListener("click", async ()=>{
+  if(!sbc){ commesse=[]; anagrafica=[]; timesheet=[]; refreshFilterOptions(); renderAll(); return; }
+  if(!window.confirm("Cancella TUTTI i dati (commesse, risorse, timesheet, scadenze) dal database condiviso.\nUtile per rimuovere i dati di esempio e ripartire puliti. Procedere?")) return;
+  if(!window.confirm("Sicuro? L'operazione non è reversibile.")) return;
+  await wipeDB(); await dbReloadRender(); toggleSeedBanner(true); renderTimesheet(); notify("Dati cancellati. Puoi ripartire da zero.");
+});
 document.getElementById("closeRes").addEventListener("click",closeRes);
 resOverlay.addEventListener("click",e=>{ if(e.target===resOverlay) closeRes(); });
 document.getElementById("addAnagBtn").addEventListener("click",()=>addAnagRow());
@@ -1282,32 +1350,47 @@ let rzT; window.addEventListener("resize",()=>{ clearTimeout(rzT); rzT=setTimeou
 /* ============================================================
    CLOUD — Supabase: caricamento, persistenza, auth, realtime
    ============================================================ */
+// Legge TUTTE le righe di una tabella a pagine da 1000 (Supabase di default ne restituisce max 1000 per query)
+async function fetchAll(table, orderCol, silent){
+  const size=1000; let from=0, out=[];
+  for(;;){
+    let qy=sbc.from(table).select('*'); if(orderCol) qy=qy.order(orderCol);
+    const {data,error}=await qy.range(from, from+size-1);
+    if(error){ if(!silent) notify("Errore lettura "+table+": "+error.message, true); return out; }
+    out=out.concat(data||[]);
+    if(!data || data.length<size) break;
+    from+=size;
+  }
+  return out;
+}
 async function loadFromDB(){
   if(!sbc) return;
-  const [R,C,A,T,S] = await Promise.all([
-    sbc.from('risorse').select('*').order('nome'),
-    sbc.from('commesse').select('*'),
-    sbc.from('allocazioni').select('*'),
-    sbc.from('timesheet').select('*'),
-    sbc.from('scadenze').select('*'),
+  const [R,C,A,T,S,CL] = await Promise.all([
+    fetchAll('risorse','nome'), fetchAll('commesse'), fetchAll('allocazioni'), fetchAll('timesheet'), fetchAll('scadenze'), fetchAll('clienti','nome',true)
   ]);
-  const bad=[R,C,A,T,S].find(x=>x.error);
-  if(bad){ alert("Errore caricamento dati: "+bad.error.message); return; }
-  anagrafica=(R.data||[]).map(r=>({id:r.id,nome:r.nome,ruolo:r.ruolo||'',costo:+r.costo||0,email:r.email||''}));
-  timesheet=(T.data||[]).map(t=>({id:t.id,risorsaId:t.risorsa_id,commessaId:t.commessa_id,data:t.data,ore:+t.ore||0}));
+  clienti=CL.map(c=>({id:c.id,nome:c.nome||'',tipo:c.tipo||'',piva:c.piva||'',codiceUnivoco:c.codice_univoco||'',referenteNome:c.referente_nome||'',referenteContatto:c.referente_contatto||'',note:c.note||''}));
+  anagrafica=R.map(r=>({id:r.id,nome:r.nome,ruolo:r.ruolo||'',costo:+r.costo||0,email:r.email||''}));
+  timesheet=T.map(t=>({id:t.id,risorsaId:t.risorsa_id,commessaId:t.commessa_id,data:t.data,ore:+t.ore||0}));
   const allocBy={},scBy={};
-  (A.data||[]).forEach(a=>{(allocBy[a.commessa_id]=allocBy[a.commessa_id]||[]).push({id:a.id,risorsaId:a.risorsa_id,alloc:+a.alloc||0});});
-  (S.data||[]).forEach(s=>{(scBy[s.commessa_id]=scBy[s.commessa_id]||[]).push({id:s.id,tipo:s.tipo,data:s.data||'',descrizione:s.descrizione||'',completata:!!s.completata,importo:+s.importo||0,emessa:!!s.emessa,dataEmissione:s.data_emissione||'',incassata:!!s.incassata,dataIncasso:s.data_incasso||''});});
-  commesse=(C.data||[]).map(c=>({id:c.id,nome:c.nome,cliente:c.cliente||'',stato:c.stato||'In corso',inizio:c.inizio||'',scadenza:c.scadenza||'',importo:+c.importo||0,orePreviste:+c.ore_previste||0,allocazioni:allocBy[c.id]||[],scadenze:scBy[c.id]||[]}));
+  A.forEach(a=>{(allocBy[a.commessa_id]=allocBy[a.commessa_id]||[]).push({id:a.id,risorsaId:a.risorsa_id,alloc:+a.alloc||0});});
+  S.forEach(s=>{(scBy[s.commessa_id]=scBy[s.commessa_id]||[]).push({id:s.id,tipo:s.tipo,data:s.data||'',descrizione:s.descrizione||'',completata:!!s.completata,importo:+s.importo||0,emessa:!!s.emessa,dataEmissione:s.data_emissione||'',incassata:!!s.incassata,dataIncasso:s.data_incasso||''});});
+  commesse=C.map(c=>({id:c.id,nome:c.nome,cliente:c.cliente||'',stato:c.stato||'In corso',inizio:c.inizio||'',scadenza:c.scadenza||'',importo:+c.importo||0,orePreviste:+c.ore_previste||0,allocazioni:allocBy[c.id]||[],scadenze:scBy[c.id]||[]}));
 }
 async function dbReloadRender(){ await loadFromDB(); refreshFilterOptions(); renderAll();
   const tv=document.getElementById("view-timesheet"); if(tv&&tv.classList.contains("active")) renderTimesheet();
-  const bv=document.getElementById("view-billing"); if(bv&&bv.classList.contains("active")) renderBilling(); }
+  const bv=document.getElementById("view-billing"); if(bv&&bv.classList.contains("active")) renderBilling();
+  const cv=document.getElementById("view-clienti"); if(cv&&cv.classList.contains("active")) renderClienti(); }
 async function dbTsUpsert(resId,commId,day,ore){ if(!sbc)return;
   // cancella-e-reinserisci: non dipende da vincoli/indici unici (più robusto dell'upsert)
-  await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day});
+  const del=await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day});
   const {error}=await sbc.from('timesheet').insert({risorsa_id:resId,commessa_id:commId,data:day,ore});
-  if(error) notify("Ore non salvate: "+error.message, true); }
+  const err=error||del.error;
+  setTsStatus(err, resId, commId, day, ore);
+  if(err) notify("Ore non salvate: "+err.message, true); }
+function setTsStatus(err){ const el=document.getElementById("tsStatus"); if(!el) return;
+  if(err){ const parts=[err.message]; if(err.details)parts.push(err.details); if(err.hint)parts.push("Suggerimento: "+err.hint); if(err.code)parts.push("codice "+err.code);
+    el.textContent="✗ Salvataggio NON riuscito — "+parts.filter(Boolean).join(" · "); el.style.color=levelColor("critical"); }
+  else { el.textContent="✓ Ore salvate nel database"; el.style.color=levelColor("good"); } }
 async function dbTsDelete(resId,commId,day){ if(!sbc)return; const {error}=await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day}); if(error) notify("Errore: "+error.message, true); }
 async function dbScUpdate(id,patch){ if(!sbc)return; const {error}=await sbc.from('scadenze').update(patch).eq('id',id); if(error) notify("Modifica non salvata: "+error.message, true); }
 function notify(msg,isErr){ const t=document.getElementById("toast"); if(!t)return; t.textContent=msg; t.style.background=isErr?levelColor("critical"):levelColor("good"); t.style.opacity="1"; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity="0"; }, isErr?7000:3500); }
@@ -1328,9 +1411,11 @@ async function wipeDB(){ const z="00000000-0000-0000-0000-000000000000";
   await sbc.from('allocazioni').delete().neq('id',z);
   await sbc.from('commesse').delete().neq('id',z);
   await sbc.from('risorse').delete().neq('id',z);
+  await sbc.from('clienti').delete().neq('id',z);
 }
-async function pushAllToDB(anag,comm,ts){
+async function pushAllToDB(anag,comm,ts,cli){
   await wipeDB();
+  for(const c of (cli||[])){ await sbc.from('clienti').insert({nome:c.nome,tipo:c.tipo||'',piva:c.piva||'',codice_univoco:c.codiceUnivoco||'',referente_nome:c.referenteNome||'',referente_contatto:c.referenteContatto||'',note:c.note||''}); }
   const rMap={};
   for(const r of anag){ const {data,error}=await sbc.from('risorse').insert({nome:r.nome,ruolo:r.ruolo||'',costo:r.costo||0,email:r.email||null}).select('id').single(); if(error){alert(error.message);return;} rMap[r.id]=data.id; }
   const cMap={};
@@ -1345,7 +1430,8 @@ async function pushAllToDB(anag,comm,ts){
 }
 async function pushSeed(){
   anagrafica=seedAnagrafica(); commesse=seedCommesse(); timesheet=genTimesheet();
-  await pushAllToDB(anagrafica,commesse,timesheet);
+  clienti=[...new Set(commesse.map(c=>c.cliente).filter(Boolean))].map(n=>({nome:n,piva:'',codiceUnivoco:'',referenteNome:'',referenteContatto:'',note:''}));
+  await pushAllToDB(anagrafica,commesse,timesheet,clienti);
   await dbReloadRender(); toggleSeedBanner(false);
   tsResId=anagrafica[0]?anagrafica[0].id:tsResId; renderTimesheet();
 }
@@ -1407,6 +1493,114 @@ document.getElementById("signupBtn").addEventListener("click",doSignup);
 document.getElementById("authPwd").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 document.getElementById("logoutBtn").addEventListener("click",async ()=>{ if(sbc) await sbc.auth.signOut(); });
 { const sb=document.getElementById("seedBtn"); if(sb) sb.addEventListener("click",()=>{ if(window.confirm("Caricare le commesse di esempio nel database condiviso?")) pushSeed(); }); }
+
+
+/* ============================================================
+   CLIENTI — anagrafica (P.IVA, codice univoco SDI, referente)
+   ============================================================ */
+function clienteById(id){ return clienti.find(c=>c.id===id); }
+function clienteByName(n){ return clienti.find(c=>(c.nome||'').toLowerCase()===String(n||'').toLowerCase()); }
+function renderClienti(){
+  const tb=document.getElementById("cliBody"); if(!tb) return;
+  const rows=clienti.slice().sort((a,b)=>(a.nome||'').toLowerCase()<(b.nome||'').toLowerCase()?-1:1);
+  document.getElementById("cliCount").textContent="· "+rows.length;
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="9"><div class="empty">Nessun cliente. Aggiungi il primo con "＋ Nuovo cliente".</div></td></tr>`; return; }
+  tb.innerHTML=rows.map(cl=>{
+    const comm=commesse.filter(c=>(c.cliente||'').toLowerCase()===(cl.nome||'').toLowerCase());
+    const val=comm.reduce((s,c)=>s+(+c.importo||0),0);
+    const tcol = cl.tipo==="Ente pubblico"?cssVar("--violet"):cssVar("--series-2");
+    return `<tr>
+      <td><div class="cname">${escapeHtml(cl.nome)}</div>${cl.note?`<div class="cclient">${escapeHtml(cl.note)}</div>`:''}</td>
+      <td>${cl.tipo?`<span class="tipo-badge" style="background:color-mix(in srgb, ${tcol} 15%, transparent);color:${tcol}">${escapeHtml(cl.tipo)}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${escapeHtml(cl.piva||'—')}</td>
+      <td>${escapeHtml(cl.codiceUnivoco||'—')}</td>
+      <td>${escapeHtml(cl.referenteNome||'—')}</td>
+      <td>${escapeHtml(cl.referenteContatto||'—')}</td>
+      <td class="num">${comm.length}</td>
+      <td class="num">${euro(val)}</td>
+      <td><div class="row-actions"><button title="Modifica" data-cl-edit="${cl.id}">✎</button><button title="Elimina" data-cl-del="${cl.id}">🗑</button></div></td>
+    </tr>`;
+  }).join("");
+}
+document.getElementById("cliBody").addEventListener("click",e=>{
+  const ed=e.target.closest("button[data-cl-edit]"); const dl=e.target.closest("button[data-cl-del]");
+  if(ed) openCliente(ed.getAttribute("data-cl-edit"));
+  else if(dl){ const cl=clienteById(dl.getAttribute("data-cl-del")); if(cl && window.confirm(`Eliminare il cliente "${cl.nome}"? (le commesse non vengono toccate)`)) delCliente(cl.id); }
+});
+let editClienteId=null;
+const clienteOverlay=document.getElementById("clienteOverlay");
+document.getElementById("addClienteBtn").addEventListener("click",()=>openCliente(null));
+document.getElementById("closeCliente").addEventListener("click",()=>clienteOverlay.classList.remove("open"));
+document.getElementById("cancelCliente").addEventListener("click",()=>clienteOverlay.classList.remove("open"));
+clienteOverlay.addEventListener("click",e=>{ if(e.target===clienteOverlay) clienteOverlay.classList.remove("open"); });
+document.getElementById("saveCliente").addEventListener("click",saveCliente);
+function openCliente(id){
+  editClienteId=id; const c=id?clienteById(id):null;
+  document.getElementById("clienteTitle").textContent=c?"Modifica cliente":"Nuovo cliente";
+  document.getElementById("clNome").value=c?c.nome:"";
+  document.getElementById("clTipo").value=c?(c.tipo||""):"";
+  document.getElementById("clPiva").value=c?c.piva:"";
+  document.getElementById("clCodice").value=c?c.codiceUnivoco:"";
+  document.getElementById("clRefNome").value=c?c.referenteNome:"";
+  document.getElementById("clRefContatto").value=c?c.referenteContatto:"";
+  document.getElementById("clNote").value=c?c.note:"";
+  clienteOverlay.classList.add("open");
+}
+async function saveCliente(){
+  const nome=document.getElementById("clNome").value.trim();
+  if(!nome){ alert("Inserisci il nome del cliente."); return; }
+  const rec={ nome, tipo:document.getElementById("clTipo").value, piva:document.getElementById("clPiva").value.trim(), codice_univoco:document.getElementById("clCodice").value.trim(), referente_nome:document.getElementById("clRefNome").value.trim(), referente_contatto:document.getElementById("clRefContatto").value.trim(), note:document.getElementById("clNote").value.trim() };
+  if(!sbc){ const o={id:editClienteId||uid("cl"),nome,tipo:rec.tipo,piva:rec.piva,codiceUnivoco:rec.codice_univoco,referenteNome:rec.referente_nome,referenteContatto:rec.referente_contatto,note:rec.note}; if(editClienteId){ const i=clienti.findIndex(x=>x.id===editClienteId); clienti[i]=o; } else clienti.push(o); clienteOverlay.classList.remove("open"); renderClienti(); refreshFilterOptions(); return; }
+  let err;
+  if(editClienteId){ const r=await sbc.from('clienti').update(rec).eq('id',editClienteId); err=r.error; }
+  else { const r=await sbc.from('clienti').insert(rec); err=r.error; }
+  if(err){ notify("Cliente non salvato: "+err.message, true); return; }
+  clienteOverlay.classList.remove("open"); await dbReloadRender();
+}
+async function delCliente(id){
+  if(!sbc){ clienti=clienti.filter(c=>c.id!==id); renderClienti(); refreshFilterOptions(); return; }
+  const {error}=await sbc.from('clienti').delete().eq('id',id); if(error){ notify("Errore: "+error.message,true); return; }
+  await dbReloadRender();
+}
+
+/* ============================================================
+   EXPORT EXCEL (.xlsx) — fogli Commesse, Clienti, Timesheet, Fatturazione
+   ============================================================ */
+document.getElementById("excelBtn").addEventListener("click",exportExcel);
+function exportExcel(){
+  if(typeof XLSX==="undefined"){ alert("Libreria Excel non caricata: controlla la connessione a internet e riprova."); return; }
+  const D=commesse.map(derive);
+  const shComm=[["Commessa","Cliente","P.IVA","Cod. univoco","Stato","Inizio","Scadenza","Importo","Ore previste","Ore realizzate","Costo","Margine EUR","Margine %","Fatturato","Incassato","Da incassare"]];
+  D.forEach(c=>{ const cl=clienteByName(c.cliente)||{}; shComm.push([c.nome,c.cliente,cl.piva||"",cl.codiceUnivoco||"",c.stato,c.inizio||"",c.scadenza||"",c.importo,Math.round(c.orePreviste*10)/10,Math.round(c.oreReal*10)/10,Math.round(c.costoReal),Math.round(c.margineEuro),Math.round(c.marginePct*1000)/10,Math.round(c.fEmesso),Math.round(c.fIncassato),Math.round(c.daIncassare)]); });
+  const shCli=[["Cliente","Tipo","P.IVA","Cod. univoco (SDI)","Referente","Contatto","Note","N. commesse","Valore contrattualizzato"]];
+  clienti.forEach(cl=>{ const comm=commesse.filter(c=>(c.cliente||'').toLowerCase()===(cl.nome||'').toLowerCase()); const val=comm.reduce((s,c)=>s+(+c.importo||0),0); shCli.push([cl.nome,cl.tipo||'',cl.piva,cl.codiceUnivoco,cl.referenteNome,cl.referenteContatto,cl.note,comm.length,val]); });
+  const shTs=[["Data","Risorsa","Ruolo","Commessa","Cliente","Ore","Costo orario","Costo"]];
+  timesheet.slice().sort((a,b)=>a.data<b.data?-1:1).forEach(t=>{ const r=resById(t.risorsaId), c=commById(t.commessaId)||{nome:"?",cliente:""}; shTs.push([t.data,r.nome,r.ruolo,c.nome,c.cliente,t.ore,r.costo||0,Math.round(t.ore*(r.costo||0))]); });
+  const shFat=[["Cliente","P.IVA","Cod. univoco","Commessa","Tranche","Importo","Scadenza","Emessa","Data emissione","Incassata","Data incasso","Stato"]];
+  commesse.forEach(c=>{ const cl=clienteByName(c.cliente)||{}; (c.scadenze||[]).filter(s=>s.tipo==="fatturazione").forEach(f=>{ shFat.push([c.cliente,cl.piva||"",cl.codiceUnivoco||"",c.nome,f.descrizione||"",+f.importo||0,f.data||"",f.emessa?"SI":"NO",f.dataEmissione||"",f.incassata?"SI":"NO",f.dataIncasso||"",fattStatus(f).label]); }); });
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shComm), "Commesse");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shCli), "Clienti");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shTs), "Timesheet");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shFat), "Fatturazione");
+  XLSX.writeFile(wb, "commesse.xlsx");
+}
+
+/* ============================================================
+   PWA — installabile sulla home del telefono
+   ============================================================ */
+(function(){
+  const ICON192="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAECUlEQVR4nO3d2ZHTQBhGUdlFMpgEhwiYBDHhDA/UrHiRrN6k75wA7Kbqv+qWpRoO02BOT+eX3mugnvPz6dB7DR91XYxhZ5r6RtH8iw09t7SOodmXGXyWaBVC9S8x+KxRO4RqH27wKalWCMU/1OBTU+kQjiU/zPBTW+kZK1KTwaeHErvB6h3A8NNLidlbFYDhp7e1M/hwAIafUayZxYcCMPyM5tGZXByA4WdUj8zmogAMP6NbOqOzAzD8bMWSWZ0VgOFna+bO7N0ADD9bNWd2i74KAVtzMwBXf7bu3gxfDcDwsxe3ZtkRiGgXA3D1Z2+uzbQdgGj/BeDqz15dmm07ANE+BeDqz959nXE7ANHeAnD1J8XHWbcDEE0ARDtOk+MPeV5n3g5ANAEQTQBEEwDRDm6ASWYHIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIg2rfeC2Cbfv/6Xvwzf/z8U/wz7zmcns4vzb+Vzaox+F+1DMERiGgCYLYWV/+W3zNNAiCcAIgmAKIJgGgCIJoAiOZJ8AJ7efrJOwHMUPN36dfPFkIfjkBEE8Ade3z6yTsBEE0ARBMA0QRANAEQTQBEEwDRBEA0ARDNu0AbU+uJceq7SALYiNqvSqS+lOcIRDQBbEDLF+XSXsoTANEEQDQBEE0ARBMA0QRAtE08CPP0k1qGDsDTT2pzBCLasAF4+kkLwwYALQiAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAog0bQMu/13nru1qtY4Q1jLKOlv/eYQOAFg6np/NL70XcM8qfR6+xjhHWMMo6evyV7k0EALU4AhFNAEQTANEEQDQBEE0ARBMA0QRANAEQTQBEEwDRBEC04/n5dOi9COjh/Hw62AGIJgCiCYBoAiDacZr+3Qz0Xgi09DrzdgCiCYBobwE4BpHi46zbAYj2KQC7AHv3dcbtAET7LwC7AHt1abbtAES7GIBdgL25NtN2AKJdDcAuwF7cmuWbO4AI2Lp7M+wIRLS7AdgF2Ko5sztrBxABWzN3ZmcfgUTAViyZ1UX3ACJgdEtndPFNsAgY1SOz+dCvQCJgNI/O5MM/g4qAUayZxVXPAURAb2tncPWDMBHQS4nZKzq8/tNtWih50S36KoTdgNpKz1i1gbUbUFKti2v1K7YQWKP2qaLZkUUILNHqON38zC4Ebml9H9n1plUMTFPfH0+G+9VGFPs22i+FfwGIfBMIMUtIKgAAAABJRU5ErkJggg==", ICON512="data:image/png;base64,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";
+  function addLink(rel,href){ const l=document.createElement('link'); l.rel=rel; l.href=href; document.head.appendChild(l); }
+  addLink('apple-touch-icon', ICON192);
+  addLink('icon', ICON192);
+  try{
+    const base=location.href.split('#')[0];
+    const manifest={ name:"Dashboard Commesse", short_name:"Commesse", start_url:base, scope:base, display:"standalone", background_color:"#f9f9f7", theme_color:"#2a78d6", icons:[{src:ICON192,sizes:"192x192",type:"image/png",purpose:"any"},{src:ICON512,sizes:"512x512",type:"image/png",purpose:"any maskable"}] };
+    addLink('manifest', 'data:application/manifest+json,'+encodeURIComponent(JSON.stringify(manifest)));
+  }catch(e){}
+})();
+
 
 /* INIT */
 boot();
