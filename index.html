@@ -284,6 +284,7 @@
         <div style="display:flex;gap:8px">
           <button class="btn sm" id="manageRes">Gestisci risorse</button>
           <button class="btn sm" id="tsCsv">↧ Timesheet CSV</button>
+          <button class="btn sm" id="tsFromCal" title="Importa ore dagli eventi di Google Calendar">📅 da Calendar</button>
           <button class="btn sm" id="wipeBtn" title="Cancella tutti i dati dal database condiviso">🗑 Svuota dati</button>
         </div>
       </div>
@@ -437,6 +438,18 @@
       <button class="btn sm" id="addSoggBtn" type="button" style="margin-top:6px">＋ Aggiungi soggetto</button>
     </div>
     <footer><div></div><div class="right"><button class="btn primary" id="saveSogg">Salva</button></div></footer>
+  </div>
+</div>
+
+<!-- Modal importa da calendario -->
+<div class="overlay" id="calImportOverlay">
+  <div class="modal">
+    <header><h2>Importa ore da Google Calendar</h2><button class="btn icon" id="closeCalImport">✕</button></header>
+    <div class="body">
+      <div class="hint" style="color:var(--muted);margin-bottom:10px">Eventi del tuo calendario Google (con orario) nella settimana selezionata. Quelli il cui titolo contiene il nome di una commessa sono già abbinati; per gli altri scegli tu la commessa dal menù. Le ore verranno <b>sommate</b> al timesheet della risorsa selezionata.</div>
+      <div id="calImportList"></div>
+    </div>
+    <footer><div id="calImportInfo" style="font-size:12px;color:var(--muted)"></div><div class="right"><button class="btn" id="cancelCalImport">Annulla</button><button class="btn primary" id="applyCalImport">Aggiungi al timesheet</button></div></footer>
   </div>
 </div>
 
@@ -1481,12 +1494,13 @@ async function dbTsUpsert(resId,commId,day,ore){ if(!sbc)return;
   const {error}=await sbc.from('timesheet').insert({risorsa_id:resId,commessa_id:commId,data:day,ore});
   const err=error||del.error;
   setTsStatus(err, resId, commId, day, ore);
-  if(err) notify("Ore non salvate: "+err.message, true); }
+  if(err) notify("Ore non salvate: "+err.message, true);
+  else gcalUpsertTimesheetEvent(resId,commId,day,ore); }
 function setTsStatus(err){ const el=document.getElementById("tsStatus"); if(!el) return;
   if(err){ const parts=[err.message]; if(err.details)parts.push(err.details); if(err.hint)parts.push("Suggerimento: "+err.hint); if(err.code)parts.push("codice "+err.code);
     el.textContent="✗ Salvataggio NON riuscito — "+parts.filter(Boolean).join(" · "); el.style.color=levelColor("critical"); }
   else { el.textContent="✓ Ore salvate nel database"; el.style.color=levelColor("good"); } }
-async function dbTsDelete(resId,commId,day){ if(!sbc)return; const {error}=await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day}); if(error) notify("Errore: "+error.message, true); }
+async function dbTsDelete(resId,commId,day){ if(!sbc)return; const {error}=await sbc.from('timesheet').delete().match({risorsa_id:resId,commessa_id:commId,data:day}); if(error) notify("Errore: "+error.message, true); else gcalDeleteTimesheetEvent(resId,commId,day); }
 async function dbScUpdate(id,patch){ if(!sbc)return; const {error}=await sbc.from('scadenze').update(patch).eq('id',id); if(error) notify("Modifica non salvata: "+error.message, true); }
 function notify(msg,isErr){ const t=document.getElementById("toast"); if(!t)return; t.textContent=msg; t.style.background=isErr?levelColor("critical"):levelColor("good"); t.style.opacity="1"; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity="0"; }, isErr?7000:3500); }
 function scToRow(cid,s){ const row={commessa_id:cid,tipo:s.tipo,data:s.data||null,descrizione:s.descrizione||'',completata:!!s.completata,importo:s.importo||0,emessa:!!s.emessa,data_emissione:s.dataEmissione||null,incassata:!!s.incassata,data_incasso:s.dataIncasso||null}; if(s.id) row.id=s.id; return row; }
@@ -1772,6 +1786,83 @@ async function syncAllScadenze(){
   else notify("Collegamento annullato o non riuscito.", true);
 }); }
 updateGcalBtn();
+
+/* ============================================================
+   FASE 2 — Timesheet ↔ Google Calendar
+   ============================================================ */
+/* Ore del timesheet -> eventi sul calendario CONDIVISO */
+function tsEvId(resId,commId,day){ return "ts"+evId(resId)+evId(commId)+String(day).replace(/-/g,''); }
+async function gcalUpsertTimesheetEvent(resId,commId,day,ore){
+  if(!gcalConfigured() || !gConnected) return;
+  const c=commById(commId), r=resById(resId); if(!c) return;
+  const summary=`⏱ ${h1(ore)}h — ${c.nome} · ${r.nome}`;
+  const desc=`Ore registrate\nRisorsa: ${r.nome}\nCommessa: ${c.nome}${c.cliente?`\nCliente: ${c.cliente}`:""}`;
+  await gcalUpsertEvent(tsEvId(resId,commId,day), summary, day, desc);
+}
+async function gcalDeleteTimesheetEvent(resId,commId,day){ if(!gcalConfigured()||!gConnected) return; await gcalDeleteEvent(tsEvId(resId,commId,day)); }
+
+/* Eventi del calendario personale -> ore da confermare nel timesheet */
+async function gcalListPrimary(timeMinISO,timeMaxISO){
+  const tok=await gcalToken(true); if(!tok) return null;
+  const url=`https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=${encodeURIComponent(timeMinISO)}&timeMax=${encodeURIComponent(timeMaxISO)}`;
+  let r; try{ r=await fetch(url,{headers:{Authorization:"Bearer "+tok}}); }catch(e){ notify("Errore di rete verso Google.", true); return null; }
+  if(!r.ok){ const t=await r.text().catch(()=>''); notify("Calendar ("+r.status+"): "+t.slice(0,140), true); return null; }
+  const j=await r.json(); return j.items||[];
+}
+let _calImportRows=[];
+const calImportOverlay=document.getElementById("calImportOverlay");
+{ const b=document.getElementById("tsFromCal"); if(b) b.addEventListener("click",openCalImport); }
+document.getElementById("closeCalImport").addEventListener("click",()=>calImportOverlay.classList.remove("open"));
+document.getElementById("cancelCalImport").addEventListener("click",()=>calImportOverlay.classList.remove("open"));
+calImportOverlay.addEventListener("click",e=>{ if(e.target===calImportOverlay) calImportOverlay.classList.remove("open"); });
+document.getElementById("applyCalImport").addEventListener("click",applyCalImport);
+async function openCalImport(){
+  if(!gcalConfigured()){ alert("Google Calendar non è configurato (vedi guida)."); return; }
+  const days=[...Array(7)].map((_,i)=>iso(addDays(tsWeek,i)));
+  const timeMin=new Date(days[0]+"T00:00:00").toISOString();
+  const timeMax=new Date(iso(addDays(tsWeek,7))+"T00:00:00").toISOString();
+  document.getElementById("calImportList").innerHTML='<div class="empty">Carico gli eventi…</div>';
+  document.getElementById("calImportInfo").textContent="";
+  calImportOverlay.classList.add("open");
+  const items=await gcalListPrimary(timeMin,timeMax);
+  if(items===null){ document.getElementById("calImportList").innerHTML='<div class="empty">Impossibile leggere il calendario. Assicurati di aver collegato Google Calendar.</div>'; return; }
+  _calImportRows=items.filter(e=>e.start&&e.start.dateTime&&e.end&&e.end.dateTime).map(e=>{
+    const st=new Date(e.start.dateTime), en=new Date(e.end.dateTime);
+    const ore=Math.max(0,Math.round((en-st)/3600000*4)/4);
+    const day=e.start.dateTime.slice(0,10);
+    const title=e.summary||"(senza titolo)";
+    const matched=commesse.find(c=>c.nome && title.toLowerCase().includes(c.nome.toLowerCase()));
+    return { day, title, ore, commId: matched?matched.id:"", checked: !!matched };
+  }).filter(r=>r.ore>0);
+  renderCalImport();
+}
+function renderCalImport(){
+  const box=document.getElementById("calImportList");
+  if(!_calImportRows.length){ box.innerHTML='<div class="empty">Nessun evento con orario nella settimana selezionata.</div>'; updateCalImportInfo(); return; }
+  const opts=(sel)=>`<option value="">— scegli commessa —</option>`+commesse.map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+  box.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr>
+      <th style="padding:6px 8px"></th><th style="text-align:left;padding:6px 8px">Giorno</th><th style="text-align:left;padding:6px 8px">Evento</th><th style="text-align:right;padding:6px 8px">Ore</th><th style="text-align:left;padding:6px 8px">Commessa</th>
+    </tr></thead><tbody>`+_calImportRows.map((r,i)=>`<tr style="border-top:1px solid var(--border)">
+      <td style="padding:6px 8px"><input type="checkbox" class="ci-chk" data-i="${i}" ${r.checked?"checked":""}></td>
+      <td style="padding:6px 8px;white-space:nowrap">${fmtDayShort(r.day)}</td>
+      <td style="padding:6px 8px">${escapeHtml(r.title)}</td>
+      <td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">${h1(r.ore)}h</td>
+      <td style="padding:6px 8px"><select class="ci-comm" data-i="${i}" style="border:1px solid var(--border);background:var(--surface-1);border-radius:7px;padding:5px 7px">${opts(r.commId)}</select></td>
+    </tr>`).join("")+`</tbody></table></div>`;
+  box.querySelectorAll(".ci-chk").forEach(x=>x.addEventListener("change",e=>{ _calImportRows[+e.target.dataset.i].checked=e.target.checked; updateCalImportInfo(); }));
+  box.querySelectorAll(".ci-comm").forEach(x=>x.addEventListener("change",e=>{ _calImportRows[+e.target.dataset.i].commId=e.target.value; if(e.target.value){ const i=+e.target.dataset.i; if(!_calImportRows[i].checked){ _calImportRows[i].checked=true; const chk=box.querySelector('.ci-chk[data-i="'+i+'"]'); if(chk) chk.checked=true; } } updateCalImportInfo(); }));
+  updateCalImportInfo();
+}
+function updateCalImportInfo(){ const sel=_calImportRows.filter(r=>r.checked&&r.commId); const h=sel.reduce((s,r)=>s+r.ore,0); const el=document.getElementById("calImportInfo"); if(el) el.textContent=sel.length+" eventi assegnati · "+h1(h)+"h da aggiungere"; }
+async function applyCalImport(){
+  const rows=_calImportRows.filter(r=>r.checked&&r.commId);
+  if(!rows.length){ notify("Nessun evento assegnato a una commessa.", true); return; }
+  const agg={}; rows.forEach(r=>{ const k=r.commId+"|"+r.day; agg[k]=(agg[k]||0)+r.ore; });
+  for(const k in agg){ const idx=k.indexOf("|"); const commId=k.slice(0,idx), day=k.slice(idx+1); const cur=tsGet(tsResId,commId,day); tsSet(tsResId,commId,day,Math.round((cur+agg[k])*10)/10); }
+  calImportOverlay.classList.remove("open");
+  renderTimesheet(); renderAll();
+  notify("Ore importate dal calendario e aggiunte al timesheet.", false);
+}
 
 /* INIT */
 boot();
