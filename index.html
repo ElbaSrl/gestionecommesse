@@ -57,7 +57,10 @@
   .view.active { display:block; }
 
   .kpis { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:22px; }
-  .kpi { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 15px; box-shadow:var(--shadow); min-width:0; }
+  .kpi { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 15px; box-shadow:var(--shadow); min-width:0; position:relative; }
+  .kpi.clickable { cursor:pointer; transition:transform .1s, border-color .1s, box-shadow .1s; }
+  .kpi.clickable:hover { border-color:var(--baseline); transform:translateY(-2px); box-shadow:0 6px 18px rgba(11,11,11,0.10); }
+  .kpi.clickable::after { content:"⤢"; position:absolute; top:10px; right:12px; color:var(--muted); font-size:12px; opacity:.45; }
   .kpi .label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
   .kpi .value { font-size:22px; font-weight:680; margin-top:6px; letter-spacing:-0.02em; }
   .kpi .value.tab { font-variant-numeric:tabular-nums; }
@@ -480,6 +483,15 @@
   </div>
 </div>
 
+<!-- Modal dettaglio KPI -->
+<div class="overlay" id="drillOverlay">
+  <div class="modal">
+    <header><h2 id="drillTitle">Dettaglio</h2><button class="btn icon" id="closeDrill">✕</button></header>
+    <div class="body"><div id="drillBody"></div></div>
+    <footer><div id="drillFoot" style="font-size:12.5px;color:var(--text-secondary)"></div><div class="right"><button class="btn" id="drillClose2">Chiudi</button></div></footer>
+  </div>
+</div>
+
 <div class="tip" id="tip"></div>
 <div id="toast" style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#d03b3b;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.3);opacity:0;transition:opacity .2s;pointer-events:none;z-index:120;max-width:80vw;text-align:center"></div>
 
@@ -811,16 +823,72 @@ function renderKpis(all){
   const rischio = all.filter(c=>c.atRisk).length;
   const mlvl = marginLevel(margPct);
   const cards=[
-    { label:"Valore contrattualizzato", value:euroK(valTot), foot:`${all.length} commesse` },
-    { label:"Margine totale", value:euroK(margTot), tab:true, foot:`<span class="${margPct>=0?'up':'down'}">${pct(margPct)}</span> margine medio`, bar:{v:Math.max(0,Math.min(1,margPct))*100,c:levelColor(mlvl)} },
-    { label:"Avanzamento ore", value:pct(avanz), tab:true, foot:`${h1(oreR)}h / ${h1(oreP)}h prev.`, bar:{v:Math.min(100,avanz*100),c:avanz>1?levelColor('serious'):levelColor('series-1')} },
-    { label:"Incassato", value:euroK(incassato), tab:true, foot:`su ${euroK(valTot)} contrattualizzati`, bar:{v:valTot?incassato/valTot*100:0,c:levelColor('good')} },
-    { label:"Da incassare", value:euroK(daIncassare), tab:true, foot:`fatture emesse non incassate`, bar:{v:valTot?daIncassare/valTot*100:0,c:levelColor('warning')} },
-    { label:"Commesse a rischio", value:String(rischio), tab:true, foot: rischio>0?`richiedono attenzione`:`nessuna criticità`, bar:{v:all.length?rischio/all.length*100:0,c:levelColor(rischio>0?'critical':'good')} },
+    { key:"valore", label:"Valore contrattualizzato", value:euroK(valTot), foot:`${all.length} commesse` },
+    { key:"margine", label:"Margine totale", value:euroK(margTot), tab:true, foot:`<span class="${margPct>=0?'up':'down'}">${pct(margPct)}</span> margine medio`, bar:{v:Math.max(0,Math.min(1,margPct))*100,c:levelColor(mlvl)} },
+    { key:"avanzamento", label:"Avanzamento ore", value:pct(avanz), tab:true, foot:`${h1(oreR)}h / ${h1(oreP)}h prev.`, bar:{v:Math.min(100,avanz*100),c:avanz>1?levelColor('serious'):levelColor('series-1')} },
+    { key:"incassato", label:"Incassato", value:euroK(incassato), tab:true, foot:`su ${euroK(valTot)} contrattualizzati`, bar:{v:valTot?incassato/valTot*100:0,c:levelColor('good')} },
+    { key:"daincassare", label:"Da incassare", value:euroK(daIncassare), tab:true, foot:`fatture emesse non incassate`, bar:{v:valTot?daIncassare/valTot*100:0,c:levelColor('warning')} },
+    { key:"rischio", label:"Commesse a rischio", value:String(rischio), tab:true, foot: rischio>0?`richiedono attenzione`:`nessuna criticità`, bar:{v:all.length?rischio/all.length*100:0,c:levelColor(rischio>0?'critical':'good')} },
   ];
   document.getElementById("kpis").innerHTML = cards.map(c=>`
-    <div class="kpi"><div class="label">${c.label}</div><div class="value ${c.tab?'tab':''}">${c.value}</div>
+    <div class="kpi clickable" data-kpi="${c.key}" title="Clicca per il dettaglio"><div class="label">${c.label}</div><div class="value ${c.tab?'tab':''}">${c.value}</div>
     <div class="foot">${c.foot}</div>${c.bar?`<div class="bar-mini"><span style="width:${c.bar.v}%;background:${c.bar.c}"></span></div>`:``}</div>`).join("");
+}
+
+/* ---- Esplosione dati: click su una scheda KPI apre il dettaglio ---- */
+const drillOverlay=document.getElementById("drillOverlay");
+document.getElementById("kpis").addEventListener("click",e=>{ const card=e.target.closest(".kpi[data-kpi]"); if(card) openDrill(card.dataset.kpi); });
+document.getElementById("closeDrill").addEventListener("click",()=>drillOverlay.classList.remove("open"));
+document.getElementById("drillClose2").addEventListener("click",()=>drillOverlay.classList.remove("open"));
+drillOverlay.addEventListener("click",e=>{ if(e.target===drillOverlay) drillOverlay.classList.remove("open"); });
+function drillTable(cols, rows){
+  return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>${cols.map(c=>`<th style="text-align:${c.num?'right':'left'};padding:8px 10px;border-bottom:1px solid var(--border);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)">${c.h}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td style="text-align:${c.num?'right':'left'};padding:8px 10px;border-bottom:1px solid var(--border);${c.num?'font-variant-numeric:tabular-nums;':''}vertical-align:top">${r[c.k]!==undefined?r[c.k]:''}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+function openDrill(key){
+  const D=commesse.map(derive);
+  const cname=(c)=>`<b>${escapeHtml(c.nome)}</b>${c.cliente?`<div style="font-size:11px;color:var(--muted)">${escapeHtml(c.cliente)}</div>`:''}`;
+  const statoPill=(c)=>`<span class="pill" style="background:color-mix(in srgb, ${statoColor(c.stato)} 14%,transparent);color:${statoColor(c.stato)}">${c.stato}</span>`;
+  let title="Dettaglio", body="", foot="";
+  if(key==="valore"){
+    title="Valore contrattualizzato per commessa";
+    const rows=D.slice().sort((a,b)=>b.importo-a.importo).map(c=>({nome:cname(c),stato:statoPill(c),imp:euro(c.importo)}));
+    body=drillTable([{h:"Commessa",k:"nome"},{h:"Stato",k:"stato"},{h:"Importo",k:"imp",num:1}],rows);
+    foot=`Totale: <b>${euro(D.reduce((s,c)=>s+c.importo,0))}</b> · ${D.length} commesse`;
+  } else if(key==="margine"){
+    title="Marginalità per commessa";
+    const rows=D.slice().sort((a,b)=>a.marginePct-b.marginePct).map(c=>{const col=levelColor(marginLevel(c.marginePct));return {nome:cname(c),imp:euro(c.importo),costo:euro(c.costoReal),me:`<span style="color:${col};font-weight:600">${euro(c.margineEuro)}</span>`,mp:`<span style="color:${col};font-weight:600">${pct(c.marginePct)}</span>`};});
+    body=drillTable([{h:"Commessa",k:"nome"},{h:"Ricavi",k:"imp",num:1},{h:"Costo",k:"costo",num:1},{h:"Margine €",k:"me",num:1},{h:"Margine %",k:"mp",num:1}],rows);
+    const vt=D.reduce((s,c)=>s+c.importo,0),mt=D.reduce((s,c)=>s+c.margineEuro,0);
+    foot=`Margine totale: <b>${euro(mt)}</b> (${pct(vt?mt/vt:0)}) · Costo consuntivo ${euro(D.reduce((s,c)=>s+c.costoReal,0))}`;
+  } else if(key==="avanzamento"){
+    title="Avanzamento ore per commessa";
+    const rows=D.slice().sort((a,b)=>b.avanzamento-a.avanzamento).map(c=>{const ov=c.oreReal>c.orePreviste;return {nome:cname(c),op:h1(c.orePreviste)+"h",or:`<span style="color:${ov?levelColor('serious'):'inherit'}">${h1(c.oreReal)}h</span>`,av:pct(c.avanzamento)};});
+    body=drillTable([{h:"Commessa",k:"nome"},{h:"Ore previste",k:"op",num:1},{h:"Ore realizzate",k:"or",num:1},{h:"Avanz.",k:"av",num:1}],rows);
+    const op=D.reduce((s,c)=>s+c.orePreviste,0),or=D.reduce((s,c)=>s+c.oreReal,0);
+    foot=`Totale: <b>${h1(or)}h</b> realizzate su ${h1(op)}h previste (${pct(op?or/op:0)})`;
+  } else if(key==="incassato"){
+    title="Fatture incassate";
+    const rows=[]; D.forEach(c=>(c.fatture||[]).filter(f=>f.incassata).forEach(f=>rows.push({_d:f.dataIncasso||f.data,nome:cname(c),tr:escapeHtml(f.descrizione||''),imp:euro(f.importo),d:fmtDate(f.dataIncasso||f.data)})));
+    rows.sort((a,b)=>a._d<b._d?1:-1);
+    body=rows.length?drillTable([{h:"Commessa",k:"nome"},{h:"Tranche",k:"tr"},{h:"Importo",k:"imp",num:1},{h:"Data incasso",k:"d"}],rows):`<div class="empty">Nessuna fattura incassata finora.</div>`;
+    foot=`Totale incassato: <b>${euro(D.reduce((s,c)=>s+c.fIncassato,0))}</b>`;
+  } else if(key==="daincassare"){
+    title="Fatture emesse ancora da incassare";
+    const rows=[]; D.forEach(c=>(c.fatture||[]).filter(f=>f.emessa&&!f.incassata).forEach(f=>{const gg=daysTo(f.data);rows.push({_gg:gg==null?9999:gg,nome:cname(c),tr:escapeHtml(f.descrizione||''),imp:euro(f.importo),scad:`${fmtDate(f.data)}${(gg!=null&&gg<0)?` <span style="color:${levelColor('critical')}">(${-gg} gg fa)</span>`:''}`});}));
+    rows.sort((a,b)=>a._gg-b._gg);
+    body=rows.length?drillTable([{h:"Commessa",k:"nome"},{h:"Tranche",k:"tr"},{h:"Importo",k:"imp",num:1},{h:"Scadenza incasso",k:"scad"}],rows):`<div class="empty">Nessuna fattura da incassare. 👍</div>`;
+    foot=`Totale da incassare: <b>${euro(D.reduce((s,c)=>s+c.daIncassare,0))}</b>`;
+  } else if(key==="rischio"){
+    title="Commesse a rischio";
+    const at=D.filter(c=>c.atRisk);
+    const rows=at.map(c=>({nome:cname(c),motivi:(c.flags||[]).map(f=>`<span class="flag" style="background:color-mix(in srgb, ${levelColor(f.lvl)} 15%,transparent);color:${levelColor(f.lvl)}">● ${f.t}</span>`).join(" ")||"—"}));
+    body=at.length?drillTable([{h:"Commessa",k:"nome"},{h:"Motivi di attenzione",k:"motivi"}],rows):`<div class="empty">Nessuna commessa a rischio. 👍</div>`;
+    foot=`${at.length} commesse a rischio su ${D.length}`;
+  }
+  document.getElementById("drillTitle").textContent=title;
+  document.getElementById("drillBody").innerHTML=body;
+  document.getElementById("drillFoot").innerHTML=foot;
+  drillOverlay.classList.add("open");
 }
 
 function renderChartMargin(data){
