@@ -250,7 +250,7 @@
     </div>
 
     <div class="tablewrap">
-      <div class="tablehead"><h3>Elenco commesse <span id="rowCount" style="color:var(--muted);font-weight:500"></span></h3></div>
+      <div class="tablehead"><h3>Elenco commesse <span id="rowCount" style="color:var(--muted);font-weight:500"></span></h3><span id="archSuggest" style="margin-left:auto;font-size:12px;color:var(--muted)"></span></div>
       <div style="overflow-x:auto">
         <table id="tbl">
           <thead><tr>
@@ -266,6 +266,22 @@
             <th></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tablewrap" id="archiveWrap" style="display:none;margin-top:18px">
+      <div class="tablehead" id="archiveHead" style="cursor:pointer">
+        <h3>📦 Archivio <span id="archCount" style="color:var(--muted);font-weight:500"></span></h3>
+        <span style="margin-left:auto;font-size:12px;color:var(--muted)">Commesse chiuse, escluse da tutti i totali · clicca per aprire/chiudere</span>
+      </div>
+      <div id="archiveBody" style="overflow-x:auto;display:none">
+        <table id="archTbl">
+          <thead><tr>
+            <th>Commessa</th><th>Stato</th><th class="num">Importo</th>
+            <th class="num">Incassato</th><th class="num">Margine €</th><th></th>
+          </tr></thead>
+          <tbody id="archBody"></tbody>
         </table>
       </div>
     </div>
@@ -382,16 +398,21 @@
         <div class="field full"><label>Note</label><textarea id="mNote" rows="2" placeholder="Note libere sulla commessa"></textarea></div>
       </div>
 
-      <div class="sec-head"><h4>Dati cliente (anagrafica)</h4><span id="mcHint" class="hint" style="font-weight:600"></span></div>
+      <div class="sec-head"><h4>Dati cliente / ente (anagrafica)</h4><span id="mcHint" class="hint" style="font-weight:600"></span></div>
       <div class="formgrid" id="clienteFields">
         <div class="field"><label>Tipo cliente</label><select id="mcTipo"><option value="">— non specificato —</option><option>Soggetto privato</option><option>Ente pubblico</option></select></div>
         <div class="field"><label>Partita IVA</label><input type="text" id="mcPiva" placeholder="IT01234567890"></div>
         <div class="field"><label>Codice univoco (SDI)</label><input type="text" id="mcCodice" placeholder="es. ABCDEF1"></div>
-        <div class="field"><label>Referente — nome</label><input type="text" id="mcRefNome" placeholder="es. Mario Bianchi"></div>
-        <div class="field"><label>Referente — contatto</label><input type="text" id="mcRefContatto" placeholder="email o telefono"></div>
         <div class="field full"><label>Note cliente</label><input type="text" id="mcNote" placeholder="facoltativo"></div>
       </div>
-      <div class="hint" style="color:var(--muted)">Questi dati creano (o aggiornano) automaticamente il cliente nella scheda <b>Clienti</b>, collegato a questa commessa tramite il nome. Se il nome cliente è vuoto, non viene creato alcun cliente.</div>
+      <div class="hint" style="color:var(--muted)">Dati condivisi dell'ente (P.IVA, codice SDI…): creano o aggiornano il cliente nella scheda <b>Clienti</b>. Se il nome cliente è vuoto, non viene creato alcun cliente.</div>
+
+      <div class="sec-head"><h4>Referente per questa commessa</h4></div>
+      <div class="formgrid">
+        <div class="field"><label>Referente — nome</label><input type="text" id="mRefNome" placeholder="es. Mario Bianchi"></div>
+        <div class="field"><label>Referente — contatto</label><input type="text" id="mRefContatto" placeholder="email o telefono"></div>
+      </div>
+      <div class="hint" style="color:var(--muted)">Il referente è legato a <b>questa</b> commessa: puoi indicare persone diverse per progetti diversi dello stesso ente. Per un cliente nuovo, questo diventa anche il referente predefinito in anagrafica.</div>
 
       <div class="sec-head"><h4>Risorse allocate (ore a budget)</h4><button class="btn sm" id="addAllocBtn" type="button">＋ Risorsa</button></div>
       <div id="allocRows"></div>
@@ -762,7 +783,7 @@ function tipoColor(t){ return cssVar((TIPI[t]||TIPI.intermedia).color); }
 /* tutte le scadenze in lista piatta (inclusa la finale sintetica) */
 function allDeadlines(){
   const out=[];
-  commesse.forEach(c=>{
+  liveCommesse().forEach(c=>{
     (c.scadenze||[]).forEach(s=> out.push({ ...s, commessaId:c.id, commessaNome:c.nome, cliente:c.cliente }));
     if(c.scadenza) out.push({ id:"fin_"+c.id, tipo:"finale", data:c.scadenza, descrizione:"Consegna finale", completata:c.stato==="Completata", commessaId:c.id, commessaNome:c.nome, cliente:c.cliente, synthetic:true });
   });
@@ -776,10 +797,16 @@ function fattStatus(f){
   return {lvl:"muted", label:"Pianificata"};
 }
 
+/* ---------- Archivio: commesse escluse dai totali ---------- */
+function liveCommesse(){ return commesse.filter(c=>!c.archiviata); }
+function archivedCommesse(){ return commesse.filter(c=>c.archiviata); }
+// suggerimento: commessa completata e senza nulla da incassare → pronta per l'archivio
+function readyForArchive(c){ return !c.archiviata && c.stato==="Completata" && (c.daIncassare||0)<=0; }
+
 /* ---------- Filtri ---------- */
 const state = { search:"",stato:"",cliente:"",sogg:"",risorsa:"",vista:"" };
 function filtered(){
-  let arr = commesse.map(derive);
+  let arr = liveCommesse().map(derive);
   if(state.search){ const q=state.search.toLowerCase(); arr=arr.filter(c=>c.nome.toLowerCase().includes(q)||c.cliente.toLowerCase().includes(q)); }
   if(state.stato) arr=arr.filter(c=>c.stato===state.stato);
   if(state.cliente) arr=arr.filter(c=>c.cliente===state.cliente);
@@ -811,15 +838,39 @@ function filtered(){
    ============================================================ */
 function renderAll(){
   const view = filtered();
-  const all = commesse.map(derive);
+  const all = liveCommesse().map(derive);
   renderKpis(all);
   renderChartMargin(view);
   renderChartHours(view);
   renderChartRes(view);
   renderChartDeadlines();
   renderTable(view);
-  document.getElementById("rowCount").textContent = "· "+view.length+" di "+commesse.length;
+  const nLive=liveCommesse().length;
+  document.getElementById("rowCount").textContent = "· "+view.length+" di "+nLive;
+  const ready=all.filter(readyForArchive).length;
+  document.getElementById("archSuggest").textContent = ready>0 ? `💡 ${ready} commesse completate e incassate: pronte per l'archivio (📦)` : "";
+  renderArchive();
   renderBilling();
+}
+function renderArchive(){
+  const arr=archivedCommesse().map(derive);
+  const wrap=document.getElementById("archiveWrap");
+  if(!arr.length){ wrap.style.display="none"; return; }
+  wrap.style.display="";
+  document.getElementById("archCount").textContent="· "+arr.length;
+  const valTot=arr.reduce((s,c)=>s+c.importo,0), incTot=arr.reduce((s,c)=>s+c.fIncassato,0), margTot=arr.reduce((s,c)=>s+c.margineEuro,0);
+  const scol=(s)=>statoColor(s);
+  const body=arr.slice().sort((a,b)=>a.nome.toLowerCase()<b.nome.toLowerCase()?-1:1).map(c=>`
+    <tr>
+      <td><div class="cname">${escapeHtml(c.nome)}</div><div class="cclient">${escapeHtml(c.cliente)}</div></td>
+      <td><span class="pill" style="background:color-mix(in srgb, ${scol(c.stato)} 14%, transparent);color:${scol(c.stato)}"><span class="d" style="background:${scol(c.stato)}"></span>${c.stato}</span></td>
+      <td class="num">${euro(c.importo)}</td>
+      <td class="num">${euro(c.fIncassato)}</td>
+      <td class="num"><span class="margin-tag" style="color:${levelColor(marginLevel(c.marginePct))}">${euro(c.margineEuro)}</span></td>
+      <td><div class="row-actions"><button title="Ripristina (rientra nei totali)" data-arch-act="restore" data-id="${c.id}">♻ Ripristina</button></div></td>
+    </tr>`).join("");
+  const foot=`<tr style="font-weight:600;border-top:1px solid var(--border)"><td colspan="2" style="padding-top:7px;color:var(--muted)">Totali archivio (non conteggiati sopra)</td><td class="num" style="padding-top:7px">${euro(valTot)}</td><td class="num" style="padding-top:7px">${euro(incTot)}</td><td class="num" style="padding-top:7px">${euro(margTot)}</td><td></td></tr>`;
+  document.getElementById("archBody").innerHTML=body+foot;
 }
 
 function renderKpis(all){
@@ -856,7 +907,7 @@ function drillTable(cols, rows){
   return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>${cols.map(c=>`<th style="text-align:${c.num?'right':'left'};padding:8px 10px;border-bottom:1px solid var(--border);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)">${c.h}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td style="text-align:${c.num?'right':'left'};padding:8px 10px;border-bottom:1px solid var(--border);${c.num?'font-variant-numeric:tabular-nums;':''}vertical-align:top">${r[c.k]!==undefined?r[c.k]:''}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 function openDrill(key){
-  const D=commesse.map(derive);
+  const D=liveCommesse().map(derive);
   const cname=(c)=>`<b>${escapeHtml(c.nome)}</b>${c.cliente?`<div style="font-size:11px;color:var(--muted)">${escapeHtml(c.cliente)}</div>`:''}`;
   const statoPill=(c)=>`<span class="pill" style="background:color-mix(in srgb, ${statoColor(c.stato)} 14%,transparent);color:${statoColor(c.stato)}">${c.stato}</span>`;
   let title="Dettaglio", body="", foot="";
@@ -996,11 +1047,12 @@ function rowHtml(c){
     <td class="num">${euro(c.fIncassato)}${c.daIncassare>0?`<div style="font-size:11px;color:${levelColor('warning')}">+${euroK(c.daIncassare)} da inc.</div>`:``}</td>
     <td class="num"><span class="margin-tag" style="color:${mcol}">${euro(c.margineEuro)}</span></td>
     <td class="num"><span class="margin-tag" style="color:${mcol}">${pct(c.marginePct)}</span></td>
-    <td><div class="row-actions"><button title="Modifica" data-act="edit" data-id="${c.id}">✎</button><button title="Duplica" data-act="dup" data-id="${c.id}">⧉</button><button title="Elimina" data-act="del" data-id="${c.id}">🗑</button></div></td>
+    <td><div class="row-actions"><button title="Modifica" data-act="edit" data-id="${c.id}">✎</button><button title="Duplica" data-act="dup" data-id="${c.id}">⧉</button><button title="${readyForArchive(c)?'Completata e incassata — archivia (esce dai totali)':'Archivia (esce dai totali)'}" data-act="arch" data-id="${c.id}" style="${readyForArchive(c)?'color:var(--series-1);font-weight:700':''}">📦</button><button title="Elimina" data-act="del" data-id="${c.id}">🗑</button></div></td>
   </tr>
   <tr class="detail" data-detail="${c.id}" style="display:none"><td colspan="10"><div class="detailinner">
     <div class="col">
       ${c.soggettoContraente?`<div style="font-size:12px;margin-bottom:4px"><span style="color:var(--muted)">Soggetto contraente:</span> <b>${escapeHtml(c.soggettoContraente)}</b></div>`:''}
+      ${(c.referenteNome||c.referenteContatto)?`<div style="font-size:12px;margin-bottom:4px"><span style="color:var(--muted)">Referente:</span> <b>${escapeHtml(c.referenteNome||'')}</b>${c.referenteContatto?` · ${escapeHtml(c.referenteContatto)}`:''}</div>`:''}
       ${c.programmaFinanziamento?`<div style="font-size:12px;margin-bottom:4px"><span style="color:var(--muted)">Programma di finanziamento:</span> <b>${escapeHtml(c.programmaFinanziamento)}</b></div>`:''}
       ${c.note?`<div style="font-size:12px;margin-bottom:8px"><span style="color:var(--muted)">Note:</span> ${escapeHtml(c.note)}</div>`:''}
       <h5>Risorse & consuntivo timesheet</h5>
@@ -1128,7 +1180,7 @@ function tsDiagUpdate(days){
    SCADENZE & FATTURAZIONE
    ============================================================ */
 function renderBilling(){
-  const all=commesse.map(derive);
+  const all=liveCommesse().map(derive);
   const valTot=all.reduce((s,c)=>s+c.importo,0);
   const fEmesso=all.reduce((s,c)=>s+c.fEmesso,0);
   const fIncassato=all.reduce((s,c)=>s+c.fIncassato,0);
@@ -1146,11 +1198,11 @@ function renderBilling(){
 
   // commessa filter options
   const bsel=document.getElementById("fBillCommessa"); const curBill=bsel.value;
-  bsel.innerHTML=`<option value="">Tutte le commesse</option>`+commesse.map(c=>`<option value="${c.id}" ${c.id===curBill?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
+  bsel.innerHTML=`<option value="">Tutte le commesse</option>`+liveCommesse().map(c=>`<option value="${c.id}" ${c.id===curBill?"selected":""}>${escapeHtml(c.nome)}</option>`).join("");
 
   // billing table
   let rows=[];
-  commesse.forEach(c=>{ (c.scadenze||[]).filter(s=>s.tipo==="fatturazione").forEach(f=>rows.push({c,f})); });
+  liveCommesse().forEach(c=>{ (c.scadenze||[]).filter(s=>s.tipo==="fatturazione").forEach(f=>rows.push({c,f})); });
   if(curBill) rows=rows.filter(r=>r.c.id===curBill);
   rows.sort((a,b)=>a.f.data<b.f.data?-1:1);
   const bb=document.getElementById("billBody");
@@ -1236,10 +1288,20 @@ document.getElementById("tbody").addEventListener("click",e=>{
     if(btn.dataset.act==="edit") openModal(id);
     else if(btn.dataset.act==="del"){ const c=commById(id); if(window.confirm(`Eliminare la commessa "${c?c.nome:''}"?`)) delCommessa(id); }
     else if(btn.dataset.act==="dup") duplicate(id);
+    else if(btn.dataset.act==="arch"){ const c=commById(id); if(window.confirm(`Archiviare la commessa "${c?c.nome:''}"?\nUscirà da tutti i totali ma resta salvata e potrai ripristinarla.`)) setArchiviata(id,true); }
     return; }
   const row=e.target.closest("tr.main");
   if(row){ const det=document.querySelector(`tr.detail[data-detail="${row.dataset.id}"]`); if(det) det.style.display=det.style.display==="none"?"table-row":"none"; }
 });
+/* ---- Archivio: toggle sezione, ripristino, set flag ---- */
+document.getElementById("archiveHead").addEventListener("click",()=>{ const b=document.getElementById("archiveBody"); b.style.display=b.style.display==="none"?"":"none"; });
+document.getElementById("archBody").addEventListener("click",e=>{ const btn=e.target.closest("button[data-arch-act]"); if(!btn) return; const id=btn.dataset.id; const c=commById(id); if(window.confirm(`Ripristinare la commessa "${c?c.nome:''}"? Tornerà nei totali.`)) setArchiviata(id,false); });
+async function setArchiviata(id,val){
+  if(!sbc){ const c=commById(id); if(c) c.archiviata=val; refreshFilterOptions(); renderAll(); return; }
+  const {error}=await sbc.from('commesse').update({archiviata:val}).eq('id',id);
+  if(error){ notify("Operazione non riuscita: "+error.message, true); return; }
+  await dbReloadRender();
+}
 async function duplicate(id){ const c=commById(id); if(!c) return;
   if(!sbc){ const copy=JSON.parse(JSON.stringify(c)); copy.id=uid("c"); copy.nome=c.nome+" (copia)"; (copy.scadenze||[]).forEach(s=>s.id=uid("s")); commesse.push(copy); refreshFilterOptions(); renderAll(); return; }
   await dbInsertCommessa({...c, nome:c.nome+" (copia)"}); await dbReloadRender();
@@ -1327,8 +1389,6 @@ function setClienteFields(cl){
   document.getElementById("mcTipo").value=cl?(cl.tipo||""):"";
   document.getElementById("mcPiva").value=cl?(cl.piva||""):"";
   document.getElementById("mcCodice").value=cl?(cl.codiceUnivoco||""):"";
-  document.getElementById("mcRefNome").value=cl?(cl.referenteNome||""):"";
-  document.getElementById("mcRefContatto").value=cl?(cl.referenteContatto||""):"";
   document.getElementById("mcNote").value=cl?(cl.note||""):"";
 }
 function syncClienteFields(force){
@@ -1336,8 +1396,13 @@ function syncClienteFields(force){
   const hint=document.getElementById("mcHint");
   const cl=name?clienteByName(name):null;
   if(cl){
-    if(force||cl.id!==mcLoadedClienteId){ setClienteFields(cl); mcLoadedClienteId=cl.id; }
-    hint.textContent="✓ Cliente già in anagrafica — eventuali modifiche verranno salvate anche in Clienti.";
+    if(force||cl.id!==mcLoadedClienteId){
+      setClienteFields(cl); mcLoadedClienteId=cl.id;
+      // suggerisci il referente predefinito dell'ente, senza sovrascrivere quello già indicato per la commessa
+      const rn=document.getElementById("mRefNome"), rc=document.getElementById("mRefContatto");
+      if(!rn.value.trim() && !rc.value.trim()){ rn.value=cl.referenteNome||""; rc.value=cl.referenteContatto||""; }
+    }
+    hint.textContent="✓ Cliente già in anagrafica — i dati dell'ente verranno aggiornati in Clienti.";
     hint.style.color="var(--series-1)";
   } else {
     if(mcLoadedClienteId){ setClienteFields(null); mcLoadedClienteId=null; }
@@ -1350,22 +1415,21 @@ function readClienteForm(){
     tipo:document.getElementById("mcTipo").value,
     piva:document.getElementById("mcPiva").value.trim(),
     codice_univoco:document.getElementById("mcCodice").value.trim(),
-    referente_nome:document.getElementById("mcRefNome").value.trim(),
-    referente_contatto:document.getElementById("mcRefContatto").value.trim(),
     note:document.getElementById("mcNote").value.trim() };
 }
 async function upsertClienteFromForm(){
-  const rec=readClienteForm();
+  const rec=readClienteForm();               // dati ente condivisi (senza referente)
   if(!rec.nome) return;
   const existing=clienteByName(rec.nome);
+  const refNome=document.getElementById("mRefNome").value.trim();
+  const refCont=document.getElementById("mRefContatto").value.trim();
   if(!sbc){
-    const local={ nome:rec.nome, tipo:rec.tipo, piva:rec.piva, codiceUnivoco:rec.codice_univoco, referenteNome:rec.referente_nome, referenteContatto:rec.referente_contatto, note:rec.note };
-    if(existing){ const i=clienti.findIndex(x=>x.id===existing.id); clienti[i]={...clienti[i],...local}; }
-    else clienti.push({id:uid("cl"),...local});
+    if(existing){ const i=clienti.findIndex(x=>x.id===existing.id); clienti[i]={...clienti[i], nome:rec.nome, tipo:rec.tipo, piva:rec.piva, codiceUnivoco:rec.codice_univoco, note:rec.note}; }
+    else clienti.push({id:uid("cl"), nome:rec.nome, tipo:rec.tipo, piva:rec.piva, codiceUnivoco:rec.codice_univoco, referenteNome:refNome, referenteContatto:refCont, note:rec.note});
     return;
   }
-  if(existing){ await sbc.from('clienti').update(rec).eq('id',existing.id); }
-  else { await sbc.from('clienti').insert(rec); }
+  if(existing){ await sbc.from('clienti').update(rec).eq('id',existing.id); } // non tocca il referente dell'ente
+  else { await sbc.from('clienti').insert({...rec, referente_nome:refNome, referente_contatto:refCont}); }
 }
 
 function openModal(id){
@@ -1381,6 +1445,8 @@ function openModal(id){
   document.getElementById("mOrePreviste").value=(c&&c.orePreviste)?c.orePreviste:"";
   document.getElementById("mProgramma").value=c?(c.programmaFinanziamento||""):"";
   document.getElementById("mNote").value=c?(c.note||""):"";
+  document.getElementById("mRefNome").value=c?(c.referenteNome||""):"";
+  document.getElementById("mRefContatto").value=c?(c.referenteContatto||""):"";
   mcLoadedClienteId=null; setClienteFields(null); syncClienteFields(false);
   const ar=document.getElementById("allocRows"); ar.innerHTML="";
   const alist=(c&&c.allocazioni&&c.allocazioni.length)?c.allocazioni:[{risorsaId:anagrafica[0]?.id,alloc:""}];
@@ -1466,11 +1532,13 @@ async function saveModal(){
     orePreviste:+document.getElementById("mOrePreviste").value||0,
     programmaFinanziamento:document.getElementById("mProgramma").value.trim(),
     note:document.getElementById("mNote").value.trim(),
+    referenteNome:document.getElementById("mRefNome").value.trim(),
+    referenteContatto:document.getElementById("mRefContatto").value.trim(),
     allocazioni:readAlloc(), scadenze:readSc() };
   let _removedScIds=[], _savedCommId=null;
   if(!sbc){ if(editId){ const i=commesse.findIndex(c=>c.id===editId); commesse[i]={...commesse[i],...obj,id:editId}; } else commesse.push({...obj,id:uid("c")}); await upsertClienteFromForm(); closeModal(); refreshFilterOptions(); renderAll(); return; }
   if(editId){
-    const {error}=await sbc.from('commesse').update({nome:obj.nome,cliente:obj.cliente,soggetto_contraente:obj.soggettoContraente||'',programma_finanziamento:obj.programmaFinanziamento||'',note:obj.note||'',stato:obj.stato,inizio:obj.inizio||null,scadenza:obj.scadenza||null,importo:obj.importo,ore_previste:obj.orePreviste}).eq('id',editId);
+    const {error}=await sbc.from('commesse').update({nome:obj.nome,cliente:obj.cliente,soggetto_contraente:obj.soggettoContraente||'',programma_finanziamento:obj.programmaFinanziamento||'',note:obj.note||'',referente_nome:obj.referenteNome||'',referente_contatto:obj.referenteContatto||'',stato:obj.stato,inizio:obj.inizio||null,scadenza:obj.scadenza||null,importo:obj.importo,ore_previste:obj.orePreviste}).eq('id',editId);
     if(error){ alert("Errore salvataggio: "+error.message); return; }
     await sbc.from('allocazioni').delete().eq('commessa_id',editId);
     const allocs=obj.allocazioni.filter(a=>a.risorsaId).map(a=>({commessa_id:editId,risorsa_id:a.risorsaId,alloc:a.alloc||0}));
@@ -1612,7 +1680,7 @@ async function loadFromDB(){
   const allocBy={},scBy={};
   A.forEach(a=>{(allocBy[a.commessa_id]=allocBy[a.commessa_id]||[]).push({id:a.id,risorsaId:a.risorsa_id,alloc:+a.alloc||0});});
   S.forEach(s=>{(scBy[s.commessa_id]=scBy[s.commessa_id]||[]).push({id:s.id,tipo:s.tipo,data:s.data||'',descrizione:s.descrizione||'',completata:!!s.completata,importo:+s.importo||0,emessa:!!s.emessa,dataEmissione:s.data_emissione||'',incassata:!!s.incassata,dataIncasso:s.data_incasso||''});});
-  commesse=C.map(c=>({id:c.id,nome:c.nome,cliente:c.cliente||'',soggettoContraente:c.soggetto_contraente||'',programmaFinanziamento:c.programma_finanziamento||'',note:c.note||'',stato:c.stato||'In corso',inizio:c.inizio||'',scadenza:c.scadenza||'',importo:+c.importo||0,orePreviste:+c.ore_previste||0,allocazioni:allocBy[c.id]||[],scadenze:scBy[c.id]||[]}));
+  commesse=C.map(c=>({id:c.id,nome:c.nome,cliente:c.cliente||'',soggettoContraente:c.soggetto_contraente||'',programmaFinanziamento:c.programma_finanziamento||'',note:c.note||'',referenteNome:c.referente_nome||'',referenteContatto:c.referente_contatto||'',stato:c.stato||'In corso',inizio:c.inizio||'',scadenza:c.scadenza||'',importo:+c.importo||0,orePreviste:+c.ore_previste||0,archiviata:!!c.archiviata,allocazioni:allocBy[c.id]||[],scadenze:scBy[c.id]||[]}));
 }
 async function dbReloadRender(){ await loadFromDB(); refreshFilterOptions(); renderAll();
   const tv=document.getElementById("view-timesheet"); if(tv&&tv.classList.contains("active")) renderTimesheet();
@@ -1635,7 +1703,7 @@ async function dbScUpdate(id,patch){ if(!sbc)return; const {error}=await sbc.fro
 function notify(msg,isErr){ const t=document.getElementById("toast"); if(!t)return; t.textContent=msg; t.style.background=isErr?levelColor("critical"):levelColor("good"); t.style.opacity="1"; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity="0"; }, isErr?7000:3500); }
 function scToRow(cid,s){ const row={commessa_id:cid,tipo:s.tipo,data:s.data||null,descrizione:s.descrizione||'',completata:!!s.completata,importo:s.importo||0,emessa:!!s.emessa,data_emissione:s.dataEmissione||null,incassata:!!s.incassata,data_incasso:s.dataIncasso||null}; if(s.id) row.id=s.id; return row; }
 async function dbInsertCommessa(c){
-  const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',soggetto_contraente:c.soggettoContraente||'',programma_finanziamento:c.programmaFinanziamento||'',note:c.note||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single();
+  const {data,error}=await sbc.from('commesse').insert({nome:c.nome,cliente:c.cliente||'',soggetto_contraente:c.soggettoContraente||'',programma_finanziamento:c.programmaFinanziamento||'',note:c.note||'',referente_nome:c.referenteNome||'',referente_contatto:c.referenteContatto||'',stato:c.stato||'In corso',inizio:c.inizio||null,scadenza:c.scadenza||null,importo:c.importo||0,ore_previste:c.orePreviste||0}).select('id').single();
   if(error){ alert("Errore salvataggio: "+error.message); return null; }
   const cid=data.id;
   const allocs=(c.allocazioni||[]).filter(a=>a.risorsaId).map(a=>({commessa_id:cid,risorsa_id:a.risorsaId,alloc:a.alloc||0}));
@@ -1809,8 +1877,8 @@ document.getElementById("excelBtn").addEventListener("click",exportExcel);
 function exportExcel(){
   if(typeof XLSX==="undefined"){ alert("Libreria Excel non caricata: controlla la connessione a internet e riprova."); return; }
   const D=commesse.map(derive);
-  const shComm=[["Commessa","Cliente","Soggetto contraente","P.IVA","Cod. univoco","Stato","Inizio","Scadenza","Importo","Ore previste","Ore realizzate","Costo","Margine EUR","Margine %","Fatturato","Incassato","Da incassare","Programma finanziamento","Note"]];
-  D.forEach(c=>{ const cl=clienteByName(c.cliente)||{}; shComm.push([c.nome,c.cliente,c.soggettoContraente||"",cl.piva||"",cl.codiceUnivoco||"",c.stato,c.inizio||"",c.scadenza||"",c.importo,Math.round(c.orePreviste*10)/10,Math.round(c.oreReal*10)/10,Math.round(c.costoReal),Math.round(c.margineEuro),Math.round(c.marginePct*1000)/10,Math.round(c.fEmesso),Math.round(c.fIncassato),Math.round(c.daIncassare),c.programmaFinanziamento||"",c.note||""]); });
+  const shComm=[["Commessa","Cliente","Referente","Contatto referente","Soggetto contraente","P.IVA","Cod. univoco","Stato","Archiviata","Inizio","Scadenza","Importo","Ore previste","Ore realizzate","Costo","Margine EUR","Margine %","Fatturato","Incassato","Da incassare","Programma finanziamento","Note"]];
+  D.forEach(c=>{ const cl=clienteByName(c.cliente)||{}; shComm.push([c.nome,c.cliente,c.referenteNome||"",c.referenteContatto||"",c.soggettoContraente||"",cl.piva||"",cl.codiceUnivoco||"",c.stato,c.archiviata?"SI":"NO",c.inizio||"",c.scadenza||"",c.importo,Math.round(c.orePreviste*10)/10,Math.round(c.oreReal*10)/10,Math.round(c.costoReal),Math.round(c.margineEuro),Math.round(c.marginePct*1000)/10,Math.round(c.fEmesso),Math.round(c.fIncassato),Math.round(c.daIncassare),c.programmaFinanziamento||"",c.note||""]); });
   const shCli=[["Cliente","Tipo","P.IVA","Cod. univoco (SDI)","Referente","Contatto","Note","N. commesse","Valore contrattualizzato"]];
   clienti.forEach(cl=>{ const comm=commesse.filter(c=>(c.cliente||'').toLowerCase()===(cl.nome||'').toLowerCase()); const val=comm.reduce((s,c)=>s+(+c.importo||0),0); shCli.push([cl.nome,cl.tipo||'',cl.piva,cl.codiceUnivoco,cl.referenteNome,cl.referenteContatto,cl.note,comm.length,val]); });
   const shTs=[["Data","Risorsa","Ruolo","Commessa","Cliente","Ore","Costo orario","Costo"]];
