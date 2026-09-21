@@ -310,8 +310,20 @@
 
     <div class="charts" style="grid-template-columns:1fr">
       <div class="panel">
-        <div class="tablehead" style="padding:0 0 10px"><h3>Piano di fatturazione</h3>
-          <div class="fgroup"><select id="fBillCommessa" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px"><option value="">Tutte le commesse</option></select></div>
+        <div class="tablehead" style="padding:0 0 10px"><h3>Piano di fatturazione <span id="billCount" style="color:var(--muted);font-weight:500"></span></h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-left:auto">
+            <div class="fgroup"><input type="text" id="fBillSearch" placeholder="Cerca commessa o cliente…" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px;min-width:180px"></div>
+            <div class="fgroup"><select id="fBillStato" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px">
+              <option value="">Tutti gli stati</option>
+              <option value="daEmettere">Da emettere (non emesse)</option>
+              <option value="emesse">Emesse</option>
+              <option value="daIncassare">Emesse da incassare</option>
+              <option value="nonIncassate">Non incassate</option>
+              <option value="incassate">Incassate</option>
+              <option value="scadute">Scadute non incassate</option>
+            </select></div>
+            <div class="fgroup"><select id="fBillCommessa" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px"><option value="">Tutte le commesse</option></select></div>
+          </div>
         </div>
         <div class="psub" style="margin-bottom:8px">Spunta <b>Emessa</b> quando emetti la fattura e <b>Incassata</b> quando ricevi il pagamento.</div>
         <div style="overflow-x:auto">
@@ -1210,7 +1222,25 @@ function renderBilling(){
   let rows=[];
   liveCommesse().forEach(c=>{ (c.scadenze||[]).filter(s=>s.tipo==="fatturazione").forEach(f=>rows.push({c,f})); });
   if(curBill) rows=rows.filter(r=>r.c.id===curBill);
+  // filtro per stato fattura
+  const stF=document.getElementById("fBillStato")?document.getElementById("fBillStato").value:"";
+  const matchStato=(f)=>{ const overdue=f.data && f.data<todayISO;
+    switch(stF){
+      case "daEmettere": return !f.emessa;
+      case "emesse": return !!f.emessa;
+      case "daIncassare": return f.emessa && !f.incassata;
+      case "nonIncassate": return !f.incassata;
+      case "incassate": return !!f.incassata;
+      case "scadute": return !f.incassata && overdue;
+      default: return true;
+    } };
+  rows=rows.filter(r=>matchStato(r.f));
+  // ricerca testuale
+  const bq=(document.getElementById("fBillSearch")?document.getElementById("fBillSearch").value:"").trim().toLowerCase();
+  if(bq) rows=rows.filter(r=>(r.c.nome||"").toLowerCase().includes(bq)||(r.c.cliente||"").toLowerCase().includes(bq)||(r.f.descrizione||"").toLowerCase().includes(bq));
   rows.sort((a,b)=>a.f.data<b.f.data?-1:1);
+  const totF=rows.reduce((s,r)=>s+(+r.f.importo||0),0);
+  const bc=document.getElementById("billCount"); if(bc) bc.textContent = (stF||bq||curBill)?`· ${rows.length} tranche · ${euro(totF)}`:`· ${rows.length} tranche`;
   const bb=document.getElementById("billBody");
   bb.innerHTML = rows.length? rows.map(({c,f})=>{ const st=fattStatus(f);
     return `<tr>
@@ -1259,6 +1289,8 @@ document.getElementById("scBody").addEventListener("change",e=>{
   s.completata=chk.checked; dbScUpdate(s.id,{completata:s.completata}); renderBilling(); renderChartDeadlines();
 });
 document.getElementById("fBillCommessa").addEventListener("change",renderBilling);
+document.getElementById("fBillStato").addEventListener("change",renderBilling);
+document.getElementById("fBillSearch").addEventListener("input",renderBilling);
 document.getElementById("fScTipo").addEventListener("change",renderBilling);
 
 /* ============================================================
