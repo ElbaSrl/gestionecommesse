@@ -229,6 +229,22 @@
     </div>
     <div class="kpis" id="kpis"></div>
 
+    <div class="tablewrap" id="archiveWrap" style="display:none;margin:14px 0 0">
+      <div class="tablehead" id="archiveHead" style="cursor:pointer">
+        <h3>📦 Archivio <span id="archCount" style="color:var(--muted);font-weight:500"></span></h3>
+        <span style="margin-left:auto;font-size:12px;color:var(--muted)">Commesse chiuse, escluse da tutti i totali · clicca per aprire/chiudere</span>
+      </div>
+      <div id="archiveBody" style="overflow-x:auto;display:none">
+        <table id="archTbl">
+          <thead><tr>
+            <th>Commessa</th><th>Stato</th><th class="num">Importo</th>
+            <th class="num">Incassato</th><th class="num">Margine €</th><th></th>
+          </tr></thead>
+          <tbody id="archBody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="filters">
       <div class="fgroup grow"><label for="search">Cerca</label><input type="text" id="search" placeholder="Commessa o cliente…"></div>
       <div class="fgroup"><label for="fStato">Stato</label><select id="fStato"><option value="">Tutti</option></select></div>
@@ -266,22 +282,6 @@
             <th></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="tablewrap" id="archiveWrap" style="display:none;margin-top:18px">
-      <div class="tablehead" id="archiveHead" style="cursor:pointer">
-        <h3>📦 Archivio <span id="archCount" style="color:var(--muted);font-weight:500"></span></h3>
-        <span style="margin-left:auto;font-size:12px;color:var(--muted)">Commesse chiuse, escluse da tutti i totali · clicca per aprire/chiudere</span>
-      </div>
-      <div id="archiveBody" style="overflow-x:auto;display:none">
-        <table id="archTbl">
-          <thead><tr>
-            <th>Commessa</th><th>Stato</th><th class="num">Importo</th>
-            <th class="num">Incassato</th><th class="num">Margine €</th><th></th>
-          </tr></thead>
-          <tbody id="archBody"></tbody>
         </table>
       </div>
     </div>
@@ -804,9 +804,11 @@ function archivedCommesse(){ return commesse.filter(c=>c.archiviata); }
 function readyForArchive(c){ return !c.archiviata && c.stato==="Completata" && (c.daIncassare||0)<=0; }
 
 /* ---------- Filtri ---------- */
+let showOnlyReady=false;   // filtro "solo pronte per l'archivio" attivato dal suggerimento
 const state = { search:"",stato:"",cliente:"",sogg:"",risorsa:"",vista:"" };
 function filtered(){
   let arr = liveCommesse().map(derive);
+  if(showOnlyReady) arr=arr.filter(readyForArchive);
   if(state.search){ const q=state.search.toLowerCase(); arr=arr.filter(c=>c.nome.toLowerCase().includes(q)||c.cliente.toLowerCase().includes(q)); }
   if(state.stato) arr=arr.filter(c=>c.stato===state.stato);
   if(state.cliente) arr=arr.filter(c=>c.cliente===state.cliente);
@@ -837,8 +839,10 @@ function filtered(){
    RENDER
    ============================================================ */
 function renderAll(){
-  const view = filtered();
   const all = liveCommesse().map(derive);
+  const ready=all.filter(readyForArchive).length;
+  if(showOnlyReady && ready===0) showOnlyReady=false;   // niente più da mostrare: torna a tutte
+  const view = filtered();
   renderKpis(all);
   renderChartMargin(view);
   renderChartHours(view);
@@ -847,8 +851,14 @@ function renderAll(){
   renderTable(view);
   const nLive=liveCommesse().length;
   document.getElementById("rowCount").textContent = "· "+view.length+" di "+nLive;
-  const ready=all.filter(readyForArchive).length;
-  document.getElementById("archSuggest").textContent = ready>0 ? `💡 ${ready} commesse completate e incassate: pronte per l'archivio (📦)` : "";
+  const sg=document.getElementById("archSuggest");
+  if(ready>0){
+    sg.style.cursor="pointer"; sg.style.textDecoration="underline";
+    if(showOnlyReady){ sg.textContent=`✕ Mostra tutte le commesse — stai vedendo le ${ready} pronte per l'archivio`; sg.style.color="var(--series-1)"; }
+    else { sg.textContent=`💡 ${ready} commesse completate e incassate: clicca per vederle e archiviarle (📦)`; sg.style.color="var(--series-1)"; }
+  } else {
+    sg.textContent=""; sg.style.cursor="default"; sg.style.textDecoration="none";
+  }
   renderArchive();
   renderBilling();
 }
@@ -1295,6 +1305,7 @@ document.getElementById("tbody").addEventListener("click",e=>{
 });
 /* ---- Archivio: toggle sezione, ripristino, set flag ---- */
 document.getElementById("archiveHead").addEventListener("click",()=>{ const b=document.getElementById("archiveBody"); b.style.display=b.style.display==="none"?"":"none"; });
+document.getElementById("archSuggest").addEventListener("click",()=>{ const sg=document.getElementById("archSuggest"); if(!sg.textContent) return; showOnlyReady=!showOnlyReady; renderAll(); if(showOnlyReady){ const w=sg.closest(".tablewrap"); if(w) w.scrollIntoView({behavior:"smooth",block:"start"}); } });
 document.getElementById("archBody").addEventListener("click",e=>{ const btn=e.target.closest("button[data-arch-act]"); if(!btn) return; const id=btn.dataset.id; const c=commById(id); if(window.confirm(`Ripristinare la commessa "${c?c.nome:''}"? Tornerà nei totali.`)) setArchiviata(id,false); });
 async function setArchiviata(id,val){
   if(!sbc){ const c=commById(id); if(c) c.archiviata=val; refreshFilterOptions(); renderAll(); return; }
