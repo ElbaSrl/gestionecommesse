@@ -229,22 +229,6 @@
     </div>
     <div class="kpis" id="kpis"></div>
 
-    <div class="tablewrap" id="archiveWrap" style="display:none;margin:14px 0 0">
-      <div class="tablehead" id="archiveHead" style="cursor:pointer">
-        <h3>📦 Archivio <span id="archCount" style="color:var(--muted);font-weight:500"></span></h3>
-        <span style="margin-left:auto;font-size:12px;color:var(--muted)">Commesse chiuse, escluse da tutti i totali · clicca per aprire/chiudere</span>
-      </div>
-      <div id="archiveBody" style="overflow-x:auto;display:none">
-        <table id="archTbl">
-          <thead><tr>
-            <th>Commessa</th><th>Stato</th><th class="num">Importo</th>
-            <th class="num">Incassato</th><th class="num">Margine €</th><th></th>
-          </tr></thead>
-          <tbody id="archBody"></tbody>
-        </table>
-      </div>
-    </div>
-
     <div class="filters">
       <div class="fgroup grow"><label for="search">Cerca</label><input type="text" id="search" placeholder="Commessa o cliente…"></div>
       <div class="fgroup"><label for="fStato">Stato</label><select id="fStato"><option value="">Tutti</option></select></div>
@@ -800,8 +784,9 @@ function fattStatus(f){
 /* ---------- Archivio: commesse escluse dai totali ---------- */
 function liveCommesse(){ return commesse.filter(c=>!c.archiviata); }
 function archivedCommesse(){ return commesse.filter(c=>c.archiviata); }
-// suggerimento: commessa completata e senza nulla da incassare → pronta per l'archivio
-function readyForArchive(c){ return !c.archiviata && c.stato==="Completata" && (c.daIncassare||0)<=0; }
+// suggerimento: commessa completata e realmente incassata per intero → pronta per l'archivio
+// (l'importo contrattualizzato risulta interamente incassato; non basta l'assenza di fatture aperte)
+function readyForArchive(c){ return !c.archiviata && c.stato==="Completata" && (c.importo||0)>0 && (c.fIncassato||0) >= (c.importo||0)-0.5; }
 
 /* ---------- Filtri ---------- */
 let showOnlyReady=false;   // filtro "solo pronte per l'archivio" attivato dal suggerimento
@@ -859,28 +844,37 @@ function renderAll(){
   } else {
     sg.textContent=""; sg.style.cursor="default"; sg.style.textDecoration="none";
   }
-  renderArchive();
   renderBilling();
 }
-function renderArchive(){
-  const arr=archivedCommesse().map(derive);
-  const wrap=document.getElementById("archiveWrap");
-  if(!arr.length){ wrap.style.display="none"; return; }
-  wrap.style.display="";
-  document.getElementById("archCount").textContent="· "+arr.length;
-  const valTot=arr.reduce((s,c)=>s+c.importo,0), incTot=arr.reduce((s,c)=>s+c.fIncassato,0), margTot=arr.reduce((s,c)=>s+c.margineEuro,0);
-  const scol=(s)=>statoColor(s);
-  const body=arr.slice().sort((a,b)=>a.nome.toLowerCase()<b.nome.toLowerCase()?-1:1).map(c=>`
-    <tr>
-      <td><div class="cname">${escapeHtml(c.nome)}</div><div class="cclient">${escapeHtml(c.cliente)}</div></td>
-      <td><span class="pill" style="background:color-mix(in srgb, ${scol(c.stato)} 14%, transparent);color:${scol(c.stato)}"><span class="d" style="background:${scol(c.stato)}"></span>${c.stato}</span></td>
-      <td class="num">${euro(c.importo)}</td>
-      <td class="num">${euro(c.fIncassato)}</td>
-      <td class="num"><span class="margin-tag" style="color:${levelColor(marginLevel(c.marginePct))}">${euro(c.margineEuro)}</span></td>
-      <td><div class="row-actions"><button title="Ripristina (rientra nei totali)" data-arch-act="restore" data-id="${c.id}">♻ Ripristina</button></div></td>
-    </tr>`).join("");
-  const foot=`<tr style="font-weight:600;border-top:1px solid var(--border)"><td colspan="2" style="padding-top:7px;color:var(--muted)">Totali archivio (non conteggiati sopra)</td><td class="num" style="padding-top:7px">${euro(valTot)}</td><td class="num" style="padding-top:7px">${euro(incTot)}</td><td class="num" style="padding-top:7px">${euro(margTot)}</td><td></td></tr>`;
-  document.getElementById("archBody").innerHTML=body+foot;
+/* ---- Archivio: finestra dedicata (aperta dalla scheda KPI 📦) ---- */
+function openArchive(){
+  const arr=archivedCommesse().map(derive).sort((a,b)=>a.nome.toLowerCase()<b.nome.toLowerCase()?-1:1);
+  document.getElementById("drillTitle").textContent="📦 Archivio commesse";
+  if(!arr.length){
+    document.getElementById("drillBody").innerHTML=`<div class="empty" style="padding:24px;color:var(--muted)">Nessuna commessa archiviata. Usa il pulsante 📦 su una commessa per archiviarla (uscirà dai totali).</div>`;
+    document.getElementById("drillFoot").innerHTML="";
+  } else {
+    const scol=(s)=>statoColor(s);
+    const search=`<div style="margin-bottom:10px"><input type="text" id="archSearch" placeholder="Cerca in archivio…" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text)"></div>`;
+    const rows=arr.map(c=>`
+      <tr data-arow="${escapeHtml((c.nome+' '+c.cliente).toLowerCase())}">
+        <td><div class="cname">${escapeHtml(c.nome)}</div><div class="cclient">${escapeHtml(c.cliente)}</div></td>
+        <td><span class="pill" style="background:color-mix(in srgb, ${scol(c.stato)} 14%, transparent);color:${scol(c.stato)}"><span class="d" style="background:${scol(c.stato)}"></span>${c.stato}</span></td>
+        <td class="num">${euro(c.importo)}</td>
+        <td class="num">${euro(c.fIncassato)}</td>
+        <td class="num"><span class="margin-tag" style="color:${levelColor(marginLevel(c.marginePct))}">${euro(c.margineEuro)}</span></td>
+        <td style="text-align:right"><button class="btn sm" data-arch-act="restore" data-id="${c.id}" title="Ripristina (rientra nei totali)">♻ Ripristina</button></td>
+      </tr>`).join("");
+    const table=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>
+      ${["Commessa","Stato",{h:"Importo",n:1},{h:"Incassato",n:1},{h:"Margine €",n:1},""].map(h=>{const o=typeof h==="object"?h:{h,n:0};return `<th style="text-align:${o.n?'right':'left'};padding:8px 10px;border-bottom:1px solid var(--border);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)">${o.h}</th>`;}).join("")}
+      </tr></thead><tbody id="archModalBody">${rows}</tbody></table></div>`;
+    document.getElementById("drillBody").innerHTML=search+table;
+    const valTot=arr.reduce((s,c)=>s+c.importo,0), incTot=arr.reduce((s,c)=>s+c.fIncassato,0), margTot=arr.reduce((s,c)=>s+c.margineEuro,0);
+    document.getElementById("drillFoot").innerHTML=`${arr.length} commesse archiviate (escluse dai totali) · Valore ${euro(valTot)} · Incassato ${euro(incTot)} · Margine ${euro(margTot)}`;
+    const si=document.getElementById("archSearch");
+    if(si) si.addEventListener("input",()=>{ const q=si.value.trim().toLowerCase(); document.querySelectorAll("#archModalBody tr[data-arow]").forEach(tr=>{ tr.style.display=tr.getAttribute("data-arow").includes(q)?"":"none"; }); });
+  }
+  drillOverlay.classList.add("open");
 }
 
 function renderKpis(all){
@@ -901,6 +895,7 @@ function renderKpis(all){
     { key:"incassato", label:"Incassato", value:euroK(incassato), tab:true, foot:`su ${euroK(valTot)} contrattualizzati`, bar:{v:valTot?incassato/valTot*100:0,c:levelColor('good')} },
     { key:"daincassare", label:"Da incassare", value:euroK(daIncassare), tab:true, foot:`fatture emesse non incassate`, bar:{v:valTot?daIncassare/valTot*100:0,c:levelColor('warning')} },
     { key:"rischio", label:"Commesse a rischio", value:String(rischio), tab:true, foot: rischio>0?`richiedono attenzione`:`nessuna criticità`, bar:{v:all.length?rischio/all.length*100:0,c:levelColor(rischio>0?'critical':'good')} },
+    { key:"archivio", label:"📦 Archivio", value:String(archivedCommesse().length), foot: archivedCommesse().length>0?`archiviate · clicca per aprire`:`nessuna commessa archiviata` },
   ];
   document.getElementById("kpis").innerHTML = cards.map(c=>`
     <div class="kpi clickable" data-kpi="${c.key}" title="Clicca per il dettaglio"><div class="label">${c.label}</div><div class="value ${c.tab?'tab':''}">${c.value}</div>
@@ -909,7 +904,8 @@ function renderKpis(all){
 
 /* ---- Esplosione dati: click su una scheda KPI apre il dettaglio ---- */
 const drillOverlay=document.getElementById("drillOverlay");
-document.getElementById("kpis").addEventListener("click",e=>{ const card=e.target.closest(".kpi[data-kpi]"); if(card) openDrill(card.dataset.kpi); });
+document.getElementById("kpis").addEventListener("click",e=>{ const card=e.target.closest(".kpi[data-kpi]"); if(!card) return; if(card.dataset.kpi==="archivio") openArchive(); else openDrill(card.dataset.kpi); });
+document.getElementById("drillBody").addEventListener("click",async e=>{ const btn=e.target.closest("button[data-arch-act]"); if(!btn) return; const id=btn.dataset.id; const c=commById(id); if(window.confirm(`Ripristinare la commessa "${c?c.nome:''}"? Tornerà nei totali.`)){ await setArchiviata(id,false); if(!archivedCommesse().length) drillOverlay.classList.remove("open"); else openArchive(); } });
 document.getElementById("closeDrill").addEventListener("click",()=>drillOverlay.classList.remove("open"));
 document.getElementById("drillClose2").addEventListener("click",()=>drillOverlay.classList.remove("open"));
 drillOverlay.addEventListener("click",e=>{ if(e.target===drillOverlay) drillOverlay.classList.remove("open"); });
@@ -1304,9 +1300,7 @@ document.getElementById("tbody").addEventListener("click",e=>{
   if(row){ const det=document.querySelector(`tr.detail[data-detail="${row.dataset.id}"]`); if(det) det.style.display=det.style.display==="none"?"table-row":"none"; }
 });
 /* ---- Archivio: toggle sezione, ripristino, set flag ---- */
-document.getElementById("archiveHead").addEventListener("click",()=>{ const b=document.getElementById("archiveBody"); b.style.display=b.style.display==="none"?"":"none"; });
 document.getElementById("archSuggest").addEventListener("click",()=>{ const sg=document.getElementById("archSuggest"); if(!sg.textContent) return; showOnlyReady=!showOnlyReady; renderAll(); if(showOnlyReady){ const w=sg.closest(".tablewrap"); if(w) w.scrollIntoView({behavior:"smooth",block:"start"}); } });
-document.getElementById("archBody").addEventListener("click",e=>{ const btn=e.target.closest("button[data-arch-act]"); if(!btn) return; const id=btn.dataset.id; const c=commById(id); if(window.confirm(`Ripristinare la commessa "${c?c.nome:''}"? Tornerà nei totali.`)) setArchiviata(id,false); });
 async function setArchiviata(id,val){
   if(!sbc){ const c=commById(id); if(c) c.archiviata=val; refreshFilterOptions(); renderAll(); return; }
   const {error}=await sbc.from('commesse').update({archiviata:val}).eq('id',id);
@@ -1824,8 +1818,10 @@ function renderClienti(){
   document.getElementById("cliCount").textContent="· "+rows.length;
   if(!rows.length){ tb.innerHTML=`<tr><td colspan="9"><div class="empty">Nessun cliente. Aggiungi il primo con "＋ Nuovo cliente".</div></td></tr>`; return; }
   tb.innerHTML=rows.map(cl=>{
-    const comm=commesse.filter(c=>(c.cliente||'').toLowerCase()===(cl.nome||'').toLowerCase());
-    const val=comm.reduce((s,c)=>s+(+c.importo||0),0);
+    const commAll=commesse.filter(c=>(c.cliente||'').toLowerCase()===(cl.nome||'').toLowerCase());
+    const comm=commAll.filter(c=>!c.archiviata);            // solo attive, coerente con i totali della dashboard
+    const nArch=commAll.length-comm.length;
+    const val=comm.reduce((s,c)=>s+(+c.importo||0),0);      // valore solo delle attive
     const tcol = cl.tipo==="Ente pubblico"?cssVar("--violet"):cssVar("--series-2");
     return `<tr>
       <td><div class="cname">${escapeHtml(cl.nome)}</div>${cl.note?`<div class="cclient">${escapeHtml(cl.note)}</div>`:''}</td>
@@ -1834,7 +1830,7 @@ function renderClienti(){
       <td>${escapeHtml(cl.codiceUnivoco||'—')}</td>
       <td>${escapeHtml(cl.referenteNome||'—')}</td>
       <td>${escapeHtml(cl.referenteContatto||'—')}</td>
-      <td class="num">${comm.length}</td>
+      <td class="num">${comm.length}${nArch?` <span style="color:var(--muted);font-size:11px">(+${nArch} arch.)</span>`:''}</td>
       <td class="num">${euro(val)}</td>
       <td><div class="row-actions"><button title="Modifica" data-cl-edit="${cl.id}">✎</button><button title="Elimina" data-cl-del="${cl.id}">🗑</button></div></td>
     </tr>`;
@@ -1890,8 +1886,8 @@ function exportExcel(){
   const D=commesse.map(derive);
   const shComm=[["Commessa","Cliente","Referente","Contatto referente","Soggetto contraente","P.IVA","Cod. univoco","Stato","Archiviata","Inizio","Scadenza","Importo","Ore previste","Ore realizzate","Costo","Margine EUR","Margine %","Fatturato","Incassato","Da incassare","Programma finanziamento","Note"]];
   D.forEach(c=>{ const cl=clienteByName(c.cliente)||{}; shComm.push([c.nome,c.cliente,c.referenteNome||"",c.referenteContatto||"",c.soggettoContraente||"",cl.piva||"",cl.codiceUnivoco||"",c.stato,c.archiviata?"SI":"NO",c.inizio||"",c.scadenza||"",c.importo,Math.round(c.orePreviste*10)/10,Math.round(c.oreReal*10)/10,Math.round(c.costoReal),Math.round(c.margineEuro),Math.round(c.marginePct*1000)/10,Math.round(c.fEmesso),Math.round(c.fIncassato),Math.round(c.daIncassare),c.programmaFinanziamento||"",c.note||""]); });
-  const shCli=[["Cliente","Tipo","P.IVA","Cod. univoco (SDI)","Referente","Contatto","Note","N. commesse","Valore contrattualizzato"]];
-  clienti.forEach(cl=>{ const comm=commesse.filter(c=>(c.cliente||'').toLowerCase()===(cl.nome||'').toLowerCase()); const val=comm.reduce((s,c)=>s+(+c.importo||0),0); shCli.push([cl.nome,cl.tipo||'',cl.piva,cl.codiceUnivoco,cl.referenteNome,cl.referenteContatto,cl.note,comm.length,val]); });
+  const shCli=[["Cliente","Tipo","P.IVA","Cod. univoco (SDI)","Referente","Contatto","Note","N. commesse attive","Valore attivo","N. commesse archiviate","Valore archiviato"]];
+  clienti.forEach(cl=>{ const commAll=commesse.filter(c=>(c.cliente||'').toLowerCase()===(cl.nome||'').toLowerCase()); const comm=commAll.filter(c=>!c.archiviata); const arch=commAll.filter(c=>c.archiviata); const val=comm.reduce((s,c)=>s+(+c.importo||0),0); const valArch=arch.reduce((s,c)=>s+(+c.importo||0),0); shCli.push([cl.nome,cl.tipo||'',cl.piva,cl.codiceUnivoco,cl.referenteNome,cl.referenteContatto,cl.note,comm.length,val,arch.length,valArch]); });
   const shTs=[["Data","Risorsa","Ruolo","Commessa","Cliente","Ore","Costo orario","Costo"]];
   timesheet.slice().sort((a,b)=>a.data<b.data?-1:1).forEach(t=>{ const r=resById(t.risorsaId), c=commById(t.commessaId)||{nome:"?",cliente:""}; shTs.push([t.data,r.nome,r.ruolo,c.nome,c.cliente,t.ore,r.costo||0,Math.round(t.ore*(r.costo||0))]); });
   const shFat=[["Cliente","P.IVA","Cod. univoco","Commessa","Tranche","Importo","Scadenza","Emessa","Data emissione","Incassata","Data incasso","Stato"]];
