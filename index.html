@@ -298,8 +298,10 @@
       <div class="tsgrid-wrap"><div id="tsGrid"></div></div>
       <div id="tsDiag" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
       <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--muted)">Aggiungi ore su un'altra commessa questa settimana:</span>
-        <select id="tsAddCommessa" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px"></select>
+        <span style="font-size:12px;color:var(--muted)">Aggiungi una commessa a questa settimana:</span>
+        <input type="text" id="tsAddSearch" list="tsAddList" placeholder="Cerca commessa o cliente…" autocomplete="off" style="border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:6px 9px;min-width:240px">
+        <datalist id="tsAddList"></datalist>
+        <button class="btn sm" id="tsAddBtn" type="button">＋ Aggiungi</button>
       </div>
     </div>
   </section>
@@ -582,6 +584,7 @@ let sortKey = "scadenza", sortDir = 1, editId = null;
 let tsResId = null;
 let tsWeek = mondayOf(TODAY);
 let tsExtra = {}; // { "resId|weekISO": Set(commessaId) }
+let tsAddMap = {}; // { "nome — cliente" (lowercase): commessaId } per la ricerca di aggiunta al TS
 
 /* ---------- Seed ---------- */
 function seedAnagrafica() {
@@ -1132,8 +1135,9 @@ function updateTsTotals(){
 }
 function tsCommesseForRes(resId, weekDays){
   const ids=new Set();
-  commesse.forEach(c=>{ if((c.allocazioni||[]).some(a=>a.risorsaId===resId)) ids.add(c.id); });
-  timesheet.forEach(t=>{ if(t.risorsaId===resId && weekDays.includes(t.data)) ids.add(t.commessaId); });
+  // Solo le commesse con ore già registrate in questa settimana + quelle aggiunte manualmente
+  // (NON più tutte le commesse allocate: si scelgono settimana per settimana con la ricerca).
+  timesheet.forEach(t=>{ if(t.risorsaId===resId && weekDays.includes(t.data) && t.ore>0) ids.add(t.commessaId); });
   const extra=tsExtra[tsKey()]; if(extra) extra.forEach(id=>ids.add(id));
   return [...ids].map(commById).filter(Boolean);
 }
@@ -1151,12 +1155,12 @@ function renderTimesheet(){
     return `<th class="${wd?'wknd':''} ${td?'today':''}">${dow[i]}<div class="daynum">${parseISO(d).getDate()}</div></th>`; }).join("")+`<th class="rowtot">Tot</th><th></th></tr>`;
 
   let body="";
-  if(!list.length){ body=`<tr><td colspan="10"><div class="empty">Nessuna commessa per questa risorsa. Allocala a una commessa o aggiungila qui sotto.</div></td></tr>`; }
+  if(!list.length){ body=`<tr><td colspan="10"><div class="empty">Nessuna commessa in questa settimana. Aggiungi quelle su cui hai lavorato con la ricerca qui sotto.</div></td></tr>`; }
   list.forEach(c=>{
     let rowTot=0;
     const cells=days.map((d,i)=>{ const v=tsGet(tsResId,c.id,d); rowTot+=v; const td=(d===todayISO), wd=(i>=5);
       return `<td class="${td?'today':''} ${wd?'wknd':''}" style="text-align:center"><input class="ts-in" type="number" min="0" step="0.5" value="${v||""}" data-comm="${c.id}" data-day="${d}"></td>`; }).join("");
-    body+=`<tr data-comm-row="${c.id}"><td><div class="cmm-name">${escapeHtml(c.nome)}</div><div class="cmm-client">${escapeHtml(c.cliente)}</div></td>${cells}<td class="rowtot">${h1(rowTot)}</td><td><button class="delrow" data-clear="${c.id}" title="Azzera riga">✕</button></td></tr>`;
+    body+=`<tr data-comm-row="${c.id}"><td><div class="cmm-name">${escapeHtml(c.nome)}</div><div class="cmm-client">${escapeHtml(c.cliente)}</div></td>${cells}<td class="rowtot">${h1(rowTot)}</td><td><button class="delrow" data-clear="${c.id}" title="Rimuovi dalla settimana (azzera le ore)">✕</button></td></tr>`;
   });
 
   // day totals across ALL commesse for the resource
@@ -1171,17 +1175,18 @@ function renderTimesheet(){
   const weekReal=grand;
   document.getElementById("tsSummary").innerHTML=`Ore registrate da <b>${escapeHtml(res.nome)}</b> nella settimana: <b>${h1(weekReal)}h</b> su ${list.length} commesse · costo interno settimana ${euro(weekReal*(res.costo||0))}`;
 
-  // add-commessa dropdown
+  // add-commessa: ricerca con datalist (solo commesse non già in elenco e non archiviate)
   const shown=new Set(list.map(c=>c.id));
-  const opts=commesse.filter(c=>!shown.has(c.id)).map(c=>`<option value="${c.id}">${escapeHtml(c.nome)} — ${escapeHtml(c.cliente)}</option>`).join("");
-  document.getElementById("tsAddCommessa").innerHTML=`<option value="">— seleziona —</option>`+opts;
+  tsAddMap={};
+  const avail=commesse.filter(c=>!c.archiviata && !shown.has(c.id));
+  document.getElementById("tsAddList").innerHTML=avail.map(c=>{ const label=`${c.nome} — ${c.cliente}`; tsAddMap[label.toLowerCase()]=c.id; return `<option value="${escapeHtml(label)}"></option>`; }).join("");
 
   // wire inputs
   document.querySelectorAll("#tsGrid .ts-in").forEach(inp=>{
     inp.addEventListener("change",()=>{ tsSet(tsResId,inp.dataset.comm,inp.dataset.day,inp.value); updateTsTotals(); renderAll(); });
   });
   document.querySelectorAll("#tsGrid .delrow").forEach(b=>{
-    b.addEventListener("click",()=>{ const cid=b.dataset.clear; days.forEach(d=>tsSet(tsResId,cid,d,0)); renderTimesheet(); renderAll(); });
+    b.addEventListener("click",()=>{ const cid=b.dataset.clear; days.forEach(d=>tsSet(tsResId,cid,d,0)); const ex=tsExtra[tsKey()]; if(ex) ex.delete(cid); renderTimesheet(); renderAll(); });
   });
   tsDiagUpdate(days);
 }
@@ -1684,7 +1689,24 @@ document.getElementById("tsRes").addEventListener("change",e=>{ tsResId=e.target
 document.getElementById("wkPrev").addEventListener("click",()=>{ tsWeek=addDays(tsWeek,-7); renderTimesheet(); });
 document.getElementById("wkNext").addEventListener("click",()=>{ tsWeek=addDays(tsWeek,7); renderTimesheet(); });
 document.getElementById("wkToday").addEventListener("click",()=>{ tsWeek=mondayOf(TODAY); renderTimesheet(); });
-document.getElementById("tsAddCommessa").addEventListener("change",e=>{ const id=e.target.value; if(!id) return; const k=tsKey(); (tsExtra[k]=tsExtra[k]||new Set()).add(id); renderTimesheet(); });
+function addTsCommessaFromSearch(){
+  const inp=document.getElementById("tsAddSearch"); const raw=inp.value.trim(); if(!raw) return;
+  const q=raw.toLowerCase();
+  let id=tsAddMap[q];
+  if(!id){ // ricerca tollerante: match esatto su nome, altrimenti "contiene"
+    const avail=commesse.filter(c=>!c.archiviata);
+    const cand=avail.find(c=>(c.nome||'').toLowerCase()===q)
+            || avail.find(c=>`${c.nome} — ${c.cliente}`.toLowerCase()===q)
+            || avail.find(c=>`${c.nome} ${c.cliente}`.toLowerCase().includes(q));
+    id=cand?cand.id:null;
+  }
+  if(!id){ notify(`Nessuna commessa trovata per "${raw}".`, true); return; }
+  const k=tsKey(); (tsExtra[k]=tsExtra[k]||new Set()).add(id);
+  inp.value=""; renderTimesheet();
+}
+document.getElementById("tsAddBtn").addEventListener("click",addTsCommessaFromSearch);
+document.getElementById("tsAddSearch").addEventListener("change",addTsCommessaFromSearch);
+document.getElementById("tsAddSearch").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addTsCommessaFromSearch(); } });
 
 /* resize */
 let rzT; window.addEventListener("resize",()=>{ clearTimeout(rzT); rzT=setTimeout(()=>{ renderAll(); if(document.getElementById("view-timesheet").classList.contains("active")) renderTimesheet(); },150); });
